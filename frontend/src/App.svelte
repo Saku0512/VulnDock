@@ -423,65 +423,38 @@
         レポート本文
         <textarea bind:value={draft.body} rows="18" placeholder="概要、影響、再現手順、証跡リンク、添付メモなど"></textarea>
       </label>
+
+      <section class="poc-panel">
+        <div class="poc-header">
+          <p class="eyebrow">PoCファイル</p>
+          <button class="ghost-button attach-button" type="button" on:click={() => pocInput?.click()}>添付</button>
+        </div>
+        <input
+          bind:this={pocInput}
+          class="hidden-file-input"
+          type="file"
+          multiple
+          on:change={(event) => attachPocFiles(event.currentTarget.files)}
+        />
+        <div class="attachment-list">
+          {#each draft.pocFiles as file, index}
+            <div class="attachment-item">
+              <div>
+                <a href={file.data} download={file.name}>{file.name}</a>
+                <span>{formatFileSize(file.size)}</span>
+              </div>
+              <button class="small-button" type="button" on:click={() => removePocFile(index)}>削除</button>
+            </div>
+          {:else}
+            <p class="muted">未添付</p>
+          {/each}
+        </div>
+      </section>
+
+      <section class="storage-note">
+        <p class="eyebrow">保存先</p>
+        <code>{storePath || '未取得'}</code>
+      </section>
     </div>
   </section>
-
-  <aside class="inspector">
-    <section>
-      <p class="eyebrow">状態</p>
-      <div class="status-stack">
-        {#each statuses as status}
-          <button
-            class:active={draft.status === status}
-            class="status-pill"
-            type="button"
-            on:click={() => draft.status = status}
-          >
-            {statusLabels[status]}
-          </button>
-        {/each}
-      </div>
-    </section>
-
-    <section>
-      <p class="eyebrow">タグ</p>
-      <div class="tag-cloud">
-        {#each tagsText.split(',').map((tag) => tag.trim()).filter(Boolean) as tag}
-          <span>{tag}</span>
-        {:else}
-          <span class="muted">未設定</span>
-        {/each}
-      </div>
-    </section>
-
-    <section>
-      <p class="eyebrow">PoCファイル</p>
-      <input
-        bind:this={pocInput}
-        class="hidden-file-input"
-        type="file"
-        multiple
-        on:change={(event) => attachPocFiles(event.currentTarget.files)}
-      />
-      <button class="ghost-button attach-button" type="button" on:click={() => pocInput?.click()}>添付</button>
-      <div class="attachment-list">
-        {#each draft.pocFiles as file, index}
-          <div class="attachment-item">
-            <div>
-              <a href={file.data} download={file.name}>{file.name}</a>
-              <span>{formatFileSize(file.size)}</span>
-            </div>
-            <button class="small-button" type="button" on:click={() => removePocFile(index)}>削除</button>
-          </div>
-        {:else}
-          <p class="muted">未添付</p>
-        {/each}
-      </div>
-    </section>
-
-    <section class="storage-note">
-      <p class="eyebrow">保存先</p>
-      <code>{storePath || '未取得'}</code>
-    </section>
-  </aside>
 </main>
