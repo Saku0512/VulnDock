@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { DeleteReport, ListReports, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
+  import { main } from '../wailsjs/go/models'
 
   type Report = {
     id: string
@@ -9,21 +10,21 @@
     asset: string
     severity: Severity
     status: Status
-    bounty: string
     submittedAt: string
-    dueAt: string
-    cve: string
     tags: string[]
-    summary: string
-    impact: string
-    steps: string
-    evidence: string
-    notes: string
+    body: string
+    pocFiles: PocFile[]
     createdAt: string
     updatedAt: string
   }
 
   type ReportDraft = Omit<Report, 'createdAt' | 'updatedAt'>
+  type PocFile = {
+    name: string
+    type: string
+    size: number
+    data: string
+  }
   type Severity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Info'
   type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
 
@@ -59,6 +60,7 @@
   let loading = true
   let saving = false
   let errorMessage = ''
+  let pocInput: HTMLInputElement
 
   $: filteredReports = reports.filter(matchesFilters)
   $: selectedReport = reports.find((report) => report.id === selectedId)
@@ -76,16 +78,10 @@
       asset: '',
       severity: 'Medium',
       status: 'Draft',
-      bounty: '',
       submittedAt: '',
-      dueAt: '',
-      cve: '',
       tags: [],
-      summary: '',
-      impact: '',
-      steps: '',
-      evidence: '',
-      notes: ''
+      body: '',
+      pocFiles: []
     }
   }
 
@@ -123,16 +119,10 @@
       asset: report.asset,
       severity: report.severity,
       status: report.status,
-      bounty: report.bounty,
       submittedAt: report.submittedAt,
-      dueAt: report.dueAt,
-      cve: report.cve,
       tags: report.tags,
-      summary: report.summary,
-      impact: report.impact,
-      steps: report.steps,
-      evidence: report.evidence,
-      notes: report.notes
+      body: report.body,
+      pocFiles: report.pocFiles
     }
     tagsText = report.tags.join(', ')
   }
@@ -142,10 +132,10 @@
     errorMessage = ''
 
     try {
-      const saved = normalizeReport(await SaveReport({
+      const saved = normalizeReport(await SaveReport(new main.ReportDraft({
         ...draft,
         tags: tagsText.split(',').map((tag) => tag.trim()).filter(Boolean)
-      }))
+      })))
       const index = reports.findIndex((report) => report.id === saved.id)
       if (index >= 0) {
         reports = reports.map((report) => report.id === saved.id ? saved : report)
@@ -184,8 +174,8 @@
       report.title,
       report.program,
       report.asset,
-      report.cve,
-      report.summary,
+      report.body,
+      report.pocFiles.map((file) => file.name).join(' '),
       report.tags.join(' ')
     ].join(' ').toLowerCase()
 
@@ -204,16 +194,10 @@
       asset: String(report.asset ?? ''),
       severity: normalizeSeverity(String(report.severity ?? 'Medium')),
       status: normalizeStatus(String(report.status ?? 'Draft')),
-      bounty: String(report.bounty ?? ''),
       submittedAt: String(report.submittedAt ?? ''),
-      dueAt: String(report.dueAt ?? ''),
-      cve: String(report.cve ?? ''),
       tags: Array.isArray(report.tags) ? report.tags.map((tag) => String(tag)) : [],
-      summary: String(report.summary ?? ''),
-      impact: String(report.impact ?? ''),
-      steps: String(report.steps ?? ''),
-      evidence: String(report.evidence ?? ''),
-      notes: String(report.notes ?? ''),
+      body: String(report.body ?? buildLegacyBody(report)),
+      pocFiles: normalizePocFiles(report.pocFiles),
       createdAt: String(report.createdAt ?? ''),
       updatedAt: String(report.updatedAt ?? '')
     }
@@ -231,30 +215,83 @@
     const open = source.filter((report) => !['Resolved', 'Rejected', 'Duplicate', 'Paid'].includes(report.status)).length
     const triaged = source.filter((report) => report.status === 'Triaged').length
     const paid = source.filter((report) => report.status === 'Paid').length
-    const bountyTotal = source.reduce((sum, report) => sum + parseBounty(report.bounty), 0)
-    return { open, triaged, paid, bountyTotal }
+    const attachments = source.reduce((sum, report) => sum + report.pocFiles.length, 0)
+    return { open, triaged, paid, attachments }
   }
 
-  function parseBounty(value: string) {
-    const amount = Number(value.replace(/[^0-9.]/g, ''))
-    return Number.isFinite(amount) ? amount : 0
+  function buildLegacyBody(report: Record<string, unknown>) {
+    const sections = [
+      ['概要', report.summary],
+      ['影響', report.impact],
+      ['再現手順', report.steps],
+      ['証跡リンク / 添付メモ', report.evidence],
+      ['メモ', report.notes]
+    ]
+
+    return sections
+      .map(([title, value]) => [title, String(value ?? '').trim()])
+      .filter(([, value]) => value)
+      .map(([title, value]) => `## ${title}\n${value}`)
+      .join('\n\n')
   }
 
-  function isDueSoon(report: Report) {
-    if (!report.dueAt || ['Resolved', 'Rejected', 'Duplicate', 'Paid'].includes(report.status)) {
-      return false
+  function normalizePocFiles(source: unknown): PocFile[] {
+    if (!Array.isArray(source)) {
+      return []
     }
 
-    const due = new Date(`${report.dueAt}T23:59:59`)
-    const ms = due.getTime() - Date.now()
-    return ms <= 1000 * 60 * 60 * 24 * 3
+    return source
+      .map((file) => file as Record<string, unknown>)
+      .map((file) => ({
+        name: String(file.name ?? '').trim(),
+        type: String(file.type ?? '').trim(),
+        size: Number(file.size ?? 0),
+        data: String(file.data ?? '').trim()
+      }))
+      .filter((file) => file.name && file.data)
   }
 
-  function formatDate(value: string) {
-    if (!value) {
-      return '未設定'
+  async function attachPocFiles(files: FileList | null) {
+    if (!files || files.length === 0) {
+      return
     }
-    return new Intl.DateTimeFormat('ja-JP', { month: '2-digit', day: '2-digit' }).format(new Date(value))
+
+    const attachments = await Promise.all(Array.from(files).map(readPocFile))
+    draft.pocFiles = [...draft.pocFiles, ...attachments]
+    if (pocInput) {
+      pocInput.value = ''
+    }
+  }
+
+  function readPocFile(file: File): Promise<PocFile> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: String(reader.result ?? '')
+      })
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+  }
+
+  function removePocFile(index: number) {
+    draft.pocFiles = draft.pocFiles.filter((_, fileIndex) => fileIndex !== index)
+  }
+
+  function formatFileSize(size: number) {
+    if (!Number.isFinite(size) || size <= 0) {
+      return '0 B'
+    }
+    if (size < 1024) {
+      return `${size} B`
+    }
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`
+    }
+    return `${(size / 1024 / 1024).toFixed(1)} MB`
   }
 </script>
 
@@ -282,8 +319,8 @@
         <p>確認中</p>
       </div>
       <div>
-        <span>${metrics.bountyTotal.toLocaleString()}</span>
-        <p>報奨金</p>
+        <span>{metrics.attachments}</span>
+        <p>PoC添付</p>
       </div>
     </div>
 
@@ -312,7 +349,6 @@
         {#each filteredReports as report}
           <button
             class:active={report.id === selectedId}
-            class:due-soon={isDueSoon(report)}
             class="report-item"
             type="button"
             on:click={() => selectReport(report)}
@@ -322,7 +358,7 @@
               <em class={`severity severity-${report.severity.toLowerCase()}`}>{report.severity}</em>
             </span>
             <span class="item-meta">{report.program || '未分類'} · {statusLabels[report.status]}</span>
-            <span class="item-meta">{report.asset || '対象未設定'} · 期限 {formatDate(report.dueAt)}</span>
+            <span class="item-meta">{report.asset || '対象未設定'} · PoC {report.pocFiles.length}件</span>
           </button>
         {/each}
       {/if}
@@ -376,18 +412,6 @@
         提出日
         <input bind:value={draft.submittedAt} type="date" />
       </label>
-      <label>
-        期限
-        <input bind:value={draft.dueAt} type="date" />
-      </label>
-      <label>
-        CVE / 参照ID
-        <input bind:value={draft.cve} placeholder="CVE-2026-0000 / VD-001" />
-      </label>
-      <label>
-        報奨金
-        <input bind:value={draft.bounty} placeholder="$500" />
-      </label>
       <label class="wide">
         タグ
         <input bind:value={tagsText} placeholder="xss, auth, api" />
@@ -395,21 +419,9 @@
     </div>
 
     <div class="writing-grid">
-      <label>
-        概要
-        <textarea bind:value={draft.summary} rows="5" placeholder="脆弱性の要点"></textarea>
-      </label>
-      <label>
-        影響
-        <textarea bind:value={draft.impact} rows="5" placeholder="攻撃者ができること、被害範囲、前提条件"></textarea>
-      </label>
-      <label>
-        再現手順
-        <textarea bind:value={draft.steps} rows="8" placeholder="1. ..."></textarea>
-      </label>
-      <label>
-        証跡リンク / 添付メモ
-        <textarea bind:value={draft.evidence} rows="8" placeholder="動画、スクリーンショット、Burp history の場所"></textarea>
+      <label class="wide writing-main">
+        レポート本文
+        <textarea bind:value={draft.body} rows="18" placeholder="概要、影響、再現手順、証跡リンク、添付メモなど"></textarea>
       </label>
     </div>
   </section>
@@ -443,8 +455,28 @@
     </section>
 
     <section>
-      <p class="eyebrow">メモ</p>
-      <textarea class="notes" bind:value={draft.notes} rows="12" placeholder="ベンダー返信、追加検証、支払い状況など"></textarea>
+      <p class="eyebrow">PoCファイル</p>
+      <input
+        bind:this={pocInput}
+        class="hidden-file-input"
+        type="file"
+        multiple
+        on:change={(event) => attachPocFiles(event.currentTarget.files)}
+      />
+      <button class="ghost-button attach-button" type="button" on:click={() => pocInput?.click()}>添付</button>
+      <div class="attachment-list">
+        {#each draft.pocFiles as file, index}
+          <div class="attachment-item">
+            <div>
+              <a href={file.data} download={file.name}>{file.name}</a>
+              <span>{formatFileSize(file.size)}</span>
+            </div>
+            <button class="small-button" type="button" on:click={() => removePocFile(index)}>削除</button>
+          </div>
+        {:else}
+          <p class="muted">未添付</p>
+        {/each}
+      </div>
     </section>
 
     <section class="storage-note">

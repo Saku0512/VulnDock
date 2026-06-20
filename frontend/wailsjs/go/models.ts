@@ -1,5 +1,23 @@
 export namespace main {
 	
+	export class PocFile {
+	    name: string;
+	    type: string;
+	    size: number;
+	    data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PocFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.size = source["size"];
+	        this.data = source["data"];
+	    }
+	}
 	export class Report {
 	    id: string;
 	    title: string;
@@ -7,16 +25,10 @@ export namespace main {
 	    asset: string;
 	    severity: string;
 	    status: string;
-	    bounty: string;
 	    submittedAt: string;
-	    dueAt: string;
-	    cve: string;
 	    tags: string[];
-	    summary: string;
-	    impact: string;
-	    steps: string;
-	    evidence: string;
-	    notes: string;
+	    body: string;
+	    pocFiles: PocFile[];
 	    createdAt: string;
 	    updatedAt: string;
 	
@@ -32,19 +44,31 @@ export namespace main {
 	        this.asset = source["asset"];
 	        this.severity = source["severity"];
 	        this.status = source["status"];
-	        this.bounty = source["bounty"];
 	        this.submittedAt = source["submittedAt"];
-	        this.dueAt = source["dueAt"];
-	        this.cve = source["cve"];
 	        this.tags = source["tags"];
-	        this.summary = source["summary"];
-	        this.impact = source["impact"];
-	        this.steps = source["steps"];
-	        this.evidence = source["evidence"];
-	        this.notes = source["notes"];
+	        this.body = source["body"];
+	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ReportDraft {
 	    id: string;
@@ -53,16 +77,10 @@ export namespace main {
 	    asset: string;
 	    severity: string;
 	    status: string;
-	    bounty: string;
 	    submittedAt: string;
-	    dueAt: string;
-	    cve: string;
 	    tags: string[];
-	    summary: string;
-	    impact: string;
-	    steps: string;
-	    evidence: string;
-	    notes: string;
+	    body: string;
+	    pocFiles: PocFile[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ReportDraft(source);
@@ -76,17 +94,29 @@ export namespace main {
 	        this.asset = source["asset"];
 	        this.severity = source["severity"];
 	        this.status = source["status"];
-	        this.bounty = source["bounty"];
 	        this.submittedAt = source["submittedAt"];
-	        this.dueAt = source["dueAt"];
-	        this.cve = source["cve"];
 	        this.tags = source["tags"];
-	        this.summary = source["summary"];
-	        this.impact = source["impact"];
-	        this.steps = source["steps"];
-	        this.evidence = source["evidence"];
-	        this.notes = source["notes"];
+	        this.body = source["body"];
+	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

@@ -17,43 +17,47 @@ type App struct {
 }
 
 type Report struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Program     string   `json:"program"`
-	Asset       string   `json:"asset"`
-	Severity    string   `json:"severity"`
-	Status      string   `json:"status"`
-	Bounty      string   `json:"bounty"`
-	SubmittedAt string   `json:"submittedAt"`
-	DueAt       string   `json:"dueAt"`
-	CVE         string   `json:"cve"`
-	Tags        []string `json:"tags"`
-	Summary     string   `json:"summary"`
-	Impact      string   `json:"impact"`
-	Steps       string   `json:"steps"`
-	Evidence    string   `json:"evidence"`
-	Notes       string   `json:"notes"`
-	CreatedAt   string   `json:"createdAt"`
-	UpdatedAt   string   `json:"updatedAt"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Program     string    `json:"program"`
+	Asset       string    `json:"asset"`
+	Severity    string    `json:"severity"`
+	Status      string    `json:"status"`
+	SubmittedAt string    `json:"submittedAt"`
+	Tags        []string  `json:"tags"`
+	Body        string    `json:"body"`
+	PocFiles    []PocFile `json:"pocFiles"`
+	CreatedAt   string    `json:"createdAt"`
+	UpdatedAt   string    `json:"updatedAt"`
 }
 
 type ReportDraft struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Program     string   `json:"program"`
-	Asset       string   `json:"asset"`
-	Severity    string   `json:"severity"`
-	Status      string   `json:"status"`
-	Bounty      string   `json:"bounty"`
-	SubmittedAt string   `json:"submittedAt"`
-	DueAt       string   `json:"dueAt"`
-	CVE         string   `json:"cve"`
-	Tags        []string `json:"tags"`
-	Summary     string   `json:"summary"`
-	Impact      string   `json:"impact"`
-	Steps       string   `json:"steps"`
-	Evidence    string   `json:"evidence"`
-	Notes       string   `json:"notes"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Program     string    `json:"program"`
+	Asset       string    `json:"asset"`
+	Severity    string    `json:"severity"`
+	Status      string    `json:"status"`
+	SubmittedAt string    `json:"submittedAt"`
+	Tags        []string  `json:"tags"`
+	Body        string    `json:"body"`
+	PocFiles    []PocFile `json:"pocFiles"`
+}
+
+type PocFile struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Size int64  `json:"size"`
+	Data string `json:"data"`
+}
+
+type storedReport struct {
+	Report
+	Summary  string `json:"summary"`
+	Impact   string `json:"impact"`
+	Steps    string `json:"steps"`
+	Evidence string `json:"evidence"`
+	Notes    string `json:"notes"`
 }
 
 func NewApp() *App {
@@ -153,11 +157,12 @@ func (a *App) loadReports() ([]Report, error) {
 		return []Report{}, nil
 	}
 
-	var reports []Report
-	if err := json.Unmarshal(content, &reports); err != nil {
+	var stored []storedReport
+	if err := json.Unmarshal(content, &stored); err != nil {
 		return nil, err
 	}
 
+	reports := migrateReports(stored)
 	sortReports(reports)
 	return reports, nil
 }
@@ -186,17 +191,69 @@ func normalizeDraft(draft ReportDraft) Report {
 		Asset:       strings.TrimSpace(draft.Asset),
 		Severity:    normalizeChoice(draft.Severity, "Medium", []string{"Critical", "High", "Medium", "Low", "Info"}),
 		Status:      normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
-		Bounty:      strings.TrimSpace(draft.Bounty),
 		SubmittedAt: strings.TrimSpace(draft.SubmittedAt),
-		DueAt:       strings.TrimSpace(draft.DueAt),
-		CVE:         strings.TrimSpace(draft.CVE),
 		Tags:        normalizeTags(draft.Tags),
-		Summary:     strings.TrimSpace(draft.Summary),
-		Impact:      strings.TrimSpace(draft.Impact),
-		Steps:       strings.TrimSpace(draft.Steps),
-		Evidence:    strings.TrimSpace(draft.Evidence),
-		Notes:       strings.TrimSpace(draft.Notes),
+		Body:        strings.TrimSpace(draft.Body),
+		PocFiles:    normalizePocFiles(draft.PocFiles),
 	}
+}
+
+func migrateReports(stored []storedReport) []Report {
+	reports := make([]Report, 0, len(stored))
+	for _, item := range stored {
+		report := item.Report
+		if strings.TrimSpace(report.Body) == "" {
+			report.Body = legacyBody(item)
+		}
+		report.Tags = normalizeTags(report.Tags)
+		report.PocFiles = normalizePocFiles(report.PocFiles)
+		reports = append(reports, report)
+	}
+	return reports
+}
+
+func legacyBody(report storedReport) string {
+	sections := []struct {
+		title string
+		value string
+	}{
+		{title: "概要", value: report.Summary},
+		{title: "影響", value: report.Impact},
+		{title: "再現手順", value: report.Steps},
+		{title: "証跡リンク / 添付メモ", value: report.Evidence},
+		{title: "メモ", value: report.Notes},
+	}
+
+	parts := []string{}
+	for _, section := range sections {
+		value := strings.TrimSpace(section.value)
+		if value == "" {
+			continue
+		}
+		parts = append(parts, "## "+section.title+"\n"+value)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func normalizePocFiles(files []PocFile) []PocFile {
+	next := []PocFile{}
+	for _, file := range files {
+		name := strings.TrimSpace(file.Name)
+		data := strings.TrimSpace(file.Data)
+		if name == "" || data == "" {
+			continue
+		}
+		if file.Size < 0 {
+			file.Size = 0
+		}
+		next = append(next, PocFile{
+			Name: name,
+			Type: strings.TrimSpace(file.Type),
+			Size: file.Size,
+			Data: data,
+		})
+	}
+	return next
 }
 
 func normalizeTags(tags []string) []string {
