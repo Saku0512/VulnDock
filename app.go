@@ -143,7 +143,7 @@ func (a *App) loadReports() ([]Report, error) {
 	path := a.StorePath()
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		reports := seedReports()
+		reports := []Report{}
 		return reports, a.saveReports(reports)
 	}
 	if err != nil {
@@ -258,46 +258,4 @@ func defaultStorePath() string {
 		configDir = "."
 	}
 	return filepath.Join(configDir, "VulnDock", "reports.json")
-}
-
-func seedReports() []Report {
-	now := time.Now()
-	return []Report{
-		{
-			ID:          "report_seed_1",
-			Title:       "Stored XSS in profile display name",
-			Program:     "Example Bug Bounty",
-			Asset:       "app.example.com/settings/profile",
-			Severity:    "High",
-			Status:      "Triaged",
-			Bounty:      "$750",
-			SubmittedAt: now.AddDate(0, 0, -9).Format("2006-01-02"),
-			DueAt:       now.AddDate(0, 0, 5).Format("2006-01-02"),
-			Tags:        []string{"xss", "stored", "account"},
-			Summary:     "Display names are rendered without escaping in the account switcher.",
-			Impact:      "An attacker can execute JavaScript in another user's authenticated session.",
-			Steps:       "1. Set the profile display name to a script payload.\n2. Invite another user to the workspace.\n3. Ask the user to open the account switcher.",
-			Evidence:    "https://example.com/private-video",
-			Notes:       "Vendor asked for a reduced payload and browser matrix.",
-			CreatedAt:   now.AddDate(0, 0, -10).Format(time.RFC3339),
-			UpdatedAt:   now.AddDate(0, 0, -2).Format(time.RFC3339),
-		},
-		{
-			ID:          "report_seed_2",
-			Title:       "IDOR allows invoice download",
-			Program:     "Internal Pentest",
-			Asset:       "api.example.net/v1/invoices/{id}",
-			Severity:    "Critical",
-			Status:      "Submitted",
-			SubmittedAt: now.AddDate(0, 0, -3).Format("2006-01-02"),
-			DueAt:       now.AddDate(0, 0, 2).Format("2006-01-02"),
-			Tags:        []string{"idor", "api", "privacy"},
-			Summary:     "Invoice identifiers can be enumerated without object-level authorization.",
-			Impact:      "Authenticated users can access billing records belonging to other tenants.",
-			Steps:       "1. Authenticate as tenant A.\n2. Request an invoice ID owned by tenant B.\n3. Observe that the PDF is returned.",
-			Notes:       "Need to attach the Burp history before the next client sync.",
-			CreatedAt:   now.AddDate(0, 0, -4).Format(time.RFC3339),
-			UpdatedAt:   now.AddDate(0, 0, -1).Format(time.RFC3339),
-		},
-	}
 }
