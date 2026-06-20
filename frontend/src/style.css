@@ -81,6 +81,20 @@ button:disabled {
   gap: 16px;
 }
 
+.brand-mark {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 11px;
+}
+
+.brand-mark img {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: #667487;

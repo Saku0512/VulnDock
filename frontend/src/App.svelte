@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { DeleteReport, ListReports, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
   import { main } from '../wailsjs/go/models'
+  import logoUrl from './assets/images/logo.png'
 
   type Report = {
     id: string
@@ -298,9 +299,12 @@
 <main class="workspace">
   <aside class="sidebar">
     <div class="brand-row">
-      <div>
-        <p class="eyebrow">VulnDock</p>
-        <h1>脆弱性報告</h1>
+      <div class="brand-mark">
+        <img src={logoUrl} alt="" />
+        <div>
+          <p class="eyebrow">VulnDock</p>
+          <h1>脆弱性報告</h1>
+        </div>
       </div>
       <button class="icon-button" type="button" title="新規報告" on:click={createReport}>+</button>
     </div>
