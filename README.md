@@ -24,7 +24,7 @@ PoC attachments are embedded in that JSON file as data URLs. Avoid attaching sec
 ## Requirements
 
 - Go 1.23+
-- Node.js 20+
+- Node.js 22+
 - npm
 - Wails v2
 - Linux WebKit dependencies required by Wails when running or building on Linux

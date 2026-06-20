@@ -55,23 +55,26 @@
     None: 'None'
   }
 
-  let reports: Report[] = []
-  let selectedId = ''
-  let search = ''
-  let statusFilter: 'All' | Status = 'All'
-  let cvssRatingFilter: 'All' | CvssRating = 'All'
-  let draft: ReportDraft = emptyDraft()
-  let tagsText = ''
-  let storePath = ''
-  let loading = true
-  let saving = false
-  let errorMessage = ''
-  let pocInput: HTMLInputElement
+  let reports = $state<Report[]>([])
+  let selectedId = $state('')
+  let search = $state('')
+  let statusFilter = $state<'All' | Status>('All')
+  let cvssRatingFilter = $state<'All' | CvssRating>('All')
+  let draft = $state<ReportDraft>(emptyDraft())
+  let tagsText = $state('')
+  let storePath = $state('')
+  let loading = $state(true)
+  let saving = $state(false)
+  let errorMessage = $state('')
+  let pocInput = $state<HTMLInputElement>()
 
-  $: filteredReports = reports.filter(matchesFilters)
-  $: selectedReport = reports.find((report) => report.id === selectedId)
-  $: metrics = buildMetrics(reports)
-  $: syncCvssFromVector(draft.cvssVector)
+  let filteredReports = $derived(reports.filter(matchesFilters))
+  let selectedReport = $derived(reports.find((report) => report.id === selectedId))
+  let metrics = $derived(buildMetrics(reports))
+
+  $effect(() => {
+    syncCvssFromVector(draft.cvssVector)
+  })
 
   onMount(async () => {
     await loadReports()
@@ -390,7 +393,7 @@
           <h1>脆弱性報告</h1>
         </div>
       </div>
-      <button class="icon-button" type="button" title="新規報告" on:click={createReport}>+</button>
+      <button class="icon-button" type="button" title="新規報告" onclick={createReport}>+</button>
     </div>
 
     <div class="metrics-grid" aria-label="Report metrics">
@@ -439,7 +442,7 @@
             class:active={report.id === selectedId}
             class="report-item"
             type="button"
-            on:click={() => selectReport(report)}
+            onclick={() => selectReport(report)}
           >
             <span class="item-topline">
               <strong>{report.title}</strong>
@@ -460,8 +463,8 @@
         <input class="title-input" bind:value={draft.title} placeholder="報告タイトル" aria-label="報告タイトル" />
       </div>
       <div class="action-row">
-        <button class="ghost-button" type="button" on:click={deleteCurrentReport} disabled={!selectedId}>削除</button>
-        <button class="primary-button" type="button" on:click={saveCurrentReport} disabled={saving}>
+        <button class="ghost-button" type="button" onclick={deleteCurrentReport} disabled={!selectedId}>削除</button>
+        <button class="primary-button" type="button" onclick={saveCurrentReport} disabled={saving}>
           {saving ? '保存中...' : '保存'}
         </button>
       </div>
@@ -523,14 +526,14 @@
       <section class="poc-panel">
         <div class="poc-header">
           <p class="eyebrow">PoCファイル</p>
-          <button class="ghost-button attach-button" type="button" on:click={() => pocInput?.click()}>添付</button>
+          <button class="ghost-button attach-button" type="button" onclick={() => pocInput?.click()}>添付</button>
         </div>
         <input
           bind:this={pocInput}
           class="hidden-file-input"
           type="file"
           multiple
-          on:change={(event) => attachPocFiles(event.currentTarget.files)}
+          onchange={(event) => attachPocFiles(event.currentTarget.files)}
         />
         <div class="attachment-list">
           {#each draft.pocFiles as file, index}
@@ -539,7 +542,7 @@
                 <a href={file.data} download={file.name}>{file.name}</a>
                 <span>{formatFileSize(file.size)}</span>
               </div>
-              <button class="small-button" type="button" on:click={() => removePocFile(index)}>削除</button>
+              <button class="small-button" type="button" onclick={() => removePocFile(index)}>削除</button>
             </div>
           {:else}
             <p class="muted">未添付</p>

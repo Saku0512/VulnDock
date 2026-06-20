@@ -61,7 +61,7 @@ function calculateCvss31(metrics: Metrics): string {
   const a = scoreValue(values.CIA, metrics.A)
   const pr = scoreCvss31Privileges(metrics.PR, scope)
 
-  if ([av, ac, ui, c, i, a, pr].some((value) => value === null) || !['U', 'C'].includes(scope)) {
+  if (av === null || ac === null || ui === null || c === null || i === null || a === null || pr === null || !['U', 'C'].includes(scope)) {
     return ''
   }
 
@@ -291,7 +291,13 @@ const cvss40Levels: Record<string, Record<string, number>> = {
   AR: { H: 0, M: 0.1, L: 0.2 }
 }
 
-const cvss40MaxSeverity = {
+const cvss40MaxSeverity: {
+  eq1: Record<number, number>
+  eq2: Record<number, number>
+  eq3eq6: Record<number, Record<number, number>>
+  eq4: Record<number, number>
+  eq5: Record<number, number>
+} = {
   eq1: { 0: 1, 1: 4, 2: 5 },
   eq2: { 0: 1, 1: 2 },
   eq3eq6: {
@@ -303,7 +309,13 @@ const cvss40MaxSeverity = {
   eq5: { 0: 1, 1: 1, 2: 1 }
 }
 
-const cvss40MaxComposed = {
+const cvss40MaxComposed: {
+  eq1: Record<number, string[]>
+  eq2: Record<number, string[]>
+  eq3: Record<number, Record<string, string[]>>
+  eq4: Record<number, string[]>
+  eq5: Record<number, string[]>
+} = {
   eq1: {
     0: ['AV:N/PR:N/UI:N/'],
     1: ['AV:A/PR:N/UI:N/', 'AV:N/PR:L/UI:N/', 'AV:N/PR:N/UI:P/'],
