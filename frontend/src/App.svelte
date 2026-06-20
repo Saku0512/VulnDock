@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { DeleteReport, ListReports, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
   import { main } from '../wailsjs/go/models'
+  import { calculateCvss, inferCvssVersion } from './cvss'
   import logoUrl from './assets/images/logo.png'
 
   type Report = {
@@ -9,7 +10,9 @@
     title: string
     program: string
     asset: string
-    severity: Severity
+    cvssVersion: CvssVersion
+    cvssScore: string
+    cvssVector: string
     status: Status
     submittedAt: string
     tags: string[]
@@ -26,10 +29,12 @@
     size: number
     data: string
   }
-  type Severity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Info'
+  type CvssVersion = '3.1' | '4.0'
+  type CvssRating = 'Critical' | 'High' | 'Medium' | 'Low' | 'None'
   type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
 
-  const severities: Severity[] = ['Critical', 'High', 'Medium', 'Low', 'Info']
+  const cvssVersions: CvssVersion[] = ['3.1', '4.0']
+  const cvssRatings: CvssRating[] = ['Critical', 'High', 'Medium', 'Low', 'None']
   const statuses: Status[] = ['Draft', 'Submitted', 'Triaged', 'Resolved', 'Duplicate', 'Rejected', 'Paid']
 
   const statusLabels: Record<Status, string> = {
@@ -42,19 +47,19 @@
     Paid: '支払済み'
   }
 
-  const severityLabels: Record<Severity, string> = {
+  const cvssRatingLabels: Record<CvssRating, string> = {
     Critical: 'Critical',
     High: 'High',
     Medium: 'Medium',
     Low: 'Low',
-    Info: 'Info'
+    None: 'None'
   }
 
   let reports: Report[] = []
   let selectedId = ''
   let search = ''
   let statusFilter: 'All' | Status = 'All'
-  let severityFilter: 'All' | Severity = 'All'
+  let cvssRatingFilter: 'All' | CvssRating = 'All'
   let draft: ReportDraft = emptyDraft()
   let tagsText = ''
   let storePath = ''
@@ -66,6 +71,7 @@
   $: filteredReports = reports.filter(matchesFilters)
   $: selectedReport = reports.find((report) => report.id === selectedId)
   $: metrics = buildMetrics(reports)
+  $: syncCvssFromVector(draft.cvssVector)
 
   onMount(async () => {
     await loadReports()
@@ -77,7 +83,9 @@
       title: '',
       program: '',
       asset: '',
-      severity: 'Medium',
+      cvssVersion: '3.1',
+      cvssScore: '',
+      cvssVector: '',
       status: 'Draft',
       submittedAt: '',
       tags: [],
@@ -118,7 +126,9 @@
       title: report.title,
       program: report.program,
       asset: report.asset,
-      severity: report.severity,
+      cvssVersion: report.cvssVersion,
+      cvssScore: report.cvssScore,
+      cvssVector: report.cvssVector,
       status: report.status,
       submittedAt: report.submittedAt,
       tags: report.tags,
@@ -175,6 +185,8 @@
       report.title,
       report.program,
       report.asset,
+      report.cvssScore,
+      report.cvssVector,
       report.body,
       report.pocFiles.map((file) => file.name).join(' '),
       report.tags.join(' ')
@@ -182,7 +194,7 @@
 
     return (!query || searchable.includes(query))
       && (statusFilter === 'All' || report.status === statusFilter)
-      && (severityFilter === 'All' || report.severity === severityFilter)
+      && (cvssRatingFilter === 'All' || cvssRating(report.cvssScore) === cvssRatingFilter)
   }
 
   function normalizeReport(source: unknown): Report {
@@ -193,7 +205,9 @@
       title: String(report.title ?? ''),
       program: String(report.program ?? ''),
       asset: String(report.asset ?? ''),
-      severity: normalizeSeverity(String(report.severity ?? 'Medium')),
+      cvssVersion: normalizeCvssVersion(String(report.cvssVersion ?? '3.1')),
+      cvssScore: normalizeCvssScore(String(report.cvssScore ?? legacySeverityScore(report.severity))),
+      cvssVector: String(report.cvssVector ?? ''),
       status: normalizeStatus(String(report.status ?? 'Draft')),
       submittedAt: String(report.submittedAt ?? ''),
       tags: Array.isArray(report.tags) ? report.tags.map((tag) => String(tag)) : [],
@@ -204,8 +218,20 @@
     }
   }
 
-  function normalizeSeverity(value: string): Severity {
-    return severities.includes(value as Severity) ? value as Severity : 'Medium'
+  function normalizeCvssVersion(value: string): CvssVersion {
+    return cvssVersions.includes(value as CvssVersion) ? value as CvssVersion : '3.1'
+  }
+
+  function normalizeCvssScore(value: string) {
+    value = value.trim()
+    if (!value) {
+      return ''
+    }
+    const score = Number(value)
+    if (!Number.isFinite(score)) {
+      return ''
+    }
+    return Math.min(10, Math.max(0, score)).toFixed(1)
   }
 
   function normalizeStatus(value: string): Status {
@@ -218,6 +244,50 @@
     const paid = source.filter((report) => report.status === 'Paid').length
     const attachments = source.reduce((sum, report) => sum + report.pocFiles.length, 0)
     return { open, triaged, paid, attachments }
+  }
+
+  function cvssRating(scoreValue: string): CvssRating {
+    const score = Number(scoreValue)
+    if (!Number.isFinite(score) || score <= 0) {
+      return 'None'
+    }
+    if (score >= 9) {
+      return 'Critical'
+    }
+    if (score >= 7) {
+      return 'High'
+    }
+    if (score >= 4) {
+      return 'Medium'
+    }
+    return 'Low'
+  }
+
+  function cvssBadge(report: Report) {
+    const rating = cvssRating(report.cvssScore)
+    return report.cvssScore ? `${rating} ${report.cvssScore}` : 'CVSS未設定'
+  }
+
+  function cvssClass(report: Report) {
+    return cvssRating(report.cvssScore).toLowerCase()
+  }
+
+  function legacySeverityScore(value: unknown) {
+    switch (String(value ?? '').trim().toLowerCase()) {
+      case 'critical':
+        return '9.0'
+      case 'high':
+        return '7.0'
+      case 'medium':
+        return '4.0'
+      case 'low':
+        return '0.1'
+      case 'info':
+      case 'none':
+        return '0.0'
+      default:
+        return ''
+    }
   }
 
   function buildLegacyBody(report: Record<string, unknown>) {
@@ -294,6 +364,20 @@
     }
     return `${(size / 1024 / 1024).toFixed(1)} MB`
   }
+
+  function syncCvssFromVector(vector: string) {
+    const version = inferCvssVersion(vector)
+    if (version && version !== draft.cvssVersion) {
+      draft.cvssVersion = version
+    }
+
+    if (!vector.trim()) {
+      draft.cvssScore = ''
+      return
+    }
+
+    draft.cvssScore = calculateCvss(version || draft.cvssVersion, vector)
+  }
 </script>
 
 <main class="workspace">
@@ -336,10 +420,10 @@
           <option value={status}>{statusLabels[status]}</option>
         {/each}
       </select>
-      <select bind:value={severityFilter} aria-label="重大度">
-        <option value="All">すべての重大度</option>
-        {#each severities as severity}
-          <option value={severity}>{severityLabels[severity]}</option>
+      <select bind:value={cvssRatingFilter} aria-label="CVSS評価">
+        <option value="All">すべてのCVSS評価</option>
+        {#each cvssRatings as rating}
+          <option value={rating}>{cvssRatingLabels[rating]}</option>
         {/each}
       </select>
     </div>
@@ -359,10 +443,10 @@
           >
             <span class="item-topline">
               <strong>{report.title}</strong>
-              <em class={`severity severity-${report.severity.toLowerCase()}`}>{report.severity}</em>
+              <em class={`severity severity-${cvssClass(report)}`}>{cvssBadge(report)}</em>
             </span>
             <span class="item-meta">{report.program || '未分類'} · {statusLabels[report.status]}</span>
-            <span class="item-meta">{report.asset || '対象未設定'} · PoC {report.pocFiles.length}件</span>
+            <span class="item-meta">{report.asset || '対象未設定'} · CVSS {report.cvssVersion} · PoC {report.pocFiles.length}件</span>
           </button>
         {/each}
       {/if}
@@ -397,12 +481,16 @@
         <input bind:value={draft.asset} placeholder="example.com / API endpoint / repository" />
       </label>
       <label>
-        重大度
-        <select bind:value={draft.severity}>
-          {#each severities as severity}
-            <option value={severity}>{severityLabels[severity]}</option>
+        CVSS
+        <select bind:value={draft.cvssVersion}>
+          {#each cvssVersions as version}
+            <option value={version}>{version}</option>
           {/each}
         </select>
+      </label>
+      <label>
+        CVSSスコア
+        <input value={draft.cvssScore || '未計算'} readonly aria-label="CVSSスコア" />
       </label>
       <label>
         ステータス
@@ -415,6 +503,10 @@
       <label>
         提出日
         <input bind:value={draft.submittedAt} type="date" />
+      </label>
+      <label class="wide">
+        CVSSベクター
+        <input bind:value={draft.cvssVector} placeholder="CVSS:4.0/... または CVSS:3.1/..." />
       </label>
       <label class="wide">
         タグ

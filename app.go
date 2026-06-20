@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,7 +22,9 @@ type Report struct {
 	Title       string    `json:"title"`
 	Program     string    `json:"program"`
 	Asset       string    `json:"asset"`
-	Severity    string    `json:"severity"`
+	CVSSVersion string    `json:"cvssVersion"`
+	CVSSScore   string    `json:"cvssScore"`
+	CVSSVector  string    `json:"cvssVector"`
 	Status      string    `json:"status"`
 	SubmittedAt string    `json:"submittedAt"`
 	Tags        []string  `json:"tags"`
@@ -36,7 +39,9 @@ type ReportDraft struct {
 	Title       string    `json:"title"`
 	Program     string    `json:"program"`
 	Asset       string    `json:"asset"`
-	Severity    string    `json:"severity"`
+	CVSSVersion string    `json:"cvssVersion"`
+	CVSSScore   string    `json:"cvssScore"`
+	CVSSVector  string    `json:"cvssVector"`
 	Status      string    `json:"status"`
 	SubmittedAt string    `json:"submittedAt"`
 	Tags        []string  `json:"tags"`
@@ -53,6 +58,7 @@ type PocFile struct {
 
 type storedReport struct {
 	Report
+	Severity string `json:"severity"`
 	Summary  string `json:"summary"`
 	Impact   string `json:"impact"`
 	Steps    string `json:"steps"`
@@ -189,7 +195,9 @@ func normalizeDraft(draft ReportDraft) Report {
 		Title:       withDefault(strings.TrimSpace(draft.Title), "Untitled report"),
 		Program:     strings.TrimSpace(draft.Program),
 		Asset:       strings.TrimSpace(draft.Asset),
-		Severity:    normalizeChoice(draft.Severity, "Medium", []string{"Critical", "High", "Medium", "Low", "Info"}),
+		CVSSVersion: normalizeChoice(draft.CVSSVersion, "3.1", []string{"3.1", "4.0"}),
+		CVSSScore:   normalizeCVSSScore(draft.CVSSScore),
+		CVSSVector:  strings.TrimSpace(draft.CVSSVector),
 		Status:      normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
 		SubmittedAt: strings.TrimSpace(draft.SubmittedAt),
 		Tags:        normalizeTags(draft.Tags),
@@ -205,6 +213,15 @@ func migrateReports(stored []storedReport) []Report {
 		if strings.TrimSpace(report.Body) == "" {
 			report.Body = legacyBody(item)
 		}
+		if strings.TrimSpace(report.CVSSVersion) == "" {
+			report.CVSSVersion = "3.1"
+		}
+		if strings.TrimSpace(report.CVSSScore) == "" {
+			report.CVSSScore = legacySeverityScore(item.Severity)
+		} else {
+			report.CVSSScore = normalizeCVSSScore(report.CVSSScore)
+		}
+		report.CVSSVector = strings.TrimSpace(report.CVSSVector)
 		report.Tags = normalizeTags(report.Tags)
 		report.PocFiles = normalizePocFiles(report.PocFiles)
 		reports = append(reports, report)
@@ -254,6 +271,42 @@ func normalizePocFiles(files []PocFile) []PocFile {
 		})
 	}
 	return next
+}
+
+func normalizeCVSSScore(score string) string {
+	score = strings.TrimSpace(score)
+	if score == "" {
+		return ""
+	}
+
+	value, err := strconv.ParseFloat(score, 64)
+	if err != nil {
+		return ""
+	}
+	if value < 0 {
+		value = 0
+	}
+	if value > 10 {
+		value = 10
+	}
+	return strconv.FormatFloat(value, 'f', 1, 64)
+}
+
+func legacySeverityScore(severity string) string {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical":
+		return "9.0"
+	case "high":
+		return "7.0"
+	case "medium":
+		return "4.0"
+	case "low":
+		return "0.1"
+	case "info", "none":
+		return "0.0"
+	default:
+		return ""
+	}
 }
 
 func normalizeTags(tags []string) []string {

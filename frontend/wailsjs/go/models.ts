@@ -23,7 +23,9 @@ export namespace main {
 	    title: string;
 	    program: string;
 	    asset: string;
-	    severity: string;
+	    cvssVersion: string;
+	    cvssScore: string;
+	    cvssVector: string;
 	    status: string;
 	    submittedAt: string;
 	    tags: string[];
@@ -42,7 +44,9 @@ export namespace main {
 	        this.title = source["title"];
 	        this.program = source["program"];
 	        this.asset = source["asset"];
-	        this.severity = source["severity"];
+	        this.cvssVersion = source["cvssVersion"];
+	        this.cvssScore = source["cvssScore"];
+	        this.cvssVector = source["cvssVector"];
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
 	        this.tags = source["tags"];
@@ -75,7 +79,9 @@ export namespace main {
 	    title: string;
 	    program: string;
 	    asset: string;
-	    severity: string;
+	    cvssVersion: string;
+	    cvssScore: string;
+	    cvssVector: string;
 	    status: string;
 	    submittedAt: string;
 	    tags: string[];
@@ -92,7 +98,9 @@ export namespace main {
 	        this.title = source["title"];
 	        this.program = source["program"];
 	        this.asset = source["asset"];
-	        this.severity = source["severity"];
+	        this.cvssVersion = source["cvssVersion"];
+	        this.cvssScore = source["cvssScore"];
+	        this.cvssVector = source["cvssVector"];
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
 	        this.tags = source["tags"];

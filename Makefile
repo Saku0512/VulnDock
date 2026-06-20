@@ -38,11 +38,18 @@ frontend-build: ## Build only the Vite frontend.
 	$(NPM) run build --prefix $(FRONTEND_DIR)
 
 .PHONY: check
-check: go-test frontend-check ## Run backend tests and frontend type checks.
+check: test frontend-check ## Run tests and frontend type checks.
+
+.PHONY: test
+test: go-test frontend-test ## Run backend and frontend tests.
 
 .PHONY: frontend-check
 frontend-check: ## Run Svelte/TypeScript checks.
 	$(NPM) run check --prefix $(FRONTEND_DIR)
+
+.PHONY: frontend-test
+frontend-test: ## Run frontend unit tests.
+	$(NPM) test --prefix $(FRONTEND_DIR)
 
 .PHONY: go-test
 go-test: ## Run Go tests.
