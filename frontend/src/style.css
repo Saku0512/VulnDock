@@ -357,6 +357,19 @@ label.wide {
   grid-column: span 2;
 }
 
+.report-url-field {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.link-button {
+  min-width: 58px;
+}
+
 .hidden-file-input {
   display: none;
 }
@@ -474,6 +487,11 @@ label.wide {
 
   label.wide {
     grid-column: auto;
+  }
+
+  .report-url-field {
+    grid-column: auto;
+    grid-template-columns: 1fr;
   }
 
   .editor-header {

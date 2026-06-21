@@ -12,6 +12,7 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 		CVSSScore:   "11.72",
 		CVSSVector:  "  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H  ",
 		Status:      "submitted",
+		ReportURL:   "  https://hackerone.com/reports/12345  ",
 		Tags:        []string{"#xss", " XSS ", "", "api"},
 		PocFiles: []PocFile{
 			{Name: " poc.py ", Type: " text/x-python ", Size: -1, Data: " data:text/plain;base64,abc "},
@@ -34,6 +35,9 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	if report.Status != "Submitted" {
 		t.Fatalf("Status = %q, want Submitted", report.Status)
 	}
+	if report.ReportURL != "https://hackerone.com/reports/12345" {
+		t.Fatalf("ReportURL = %q, want trimmed HackerOne URL", report.ReportURL)
+	}
 	if got := strings.Join(report.Tags, ","); got != "xss,api" {
 		t.Fatalf("Tags = %q, want xss,api", got)
 	}
@@ -42,6 +46,17 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	}
 	if report.PocFiles[0].Size != 0 {
 		t.Fatalf("PocFiles[0].Size = %d, want 0", report.PocFiles[0].Size)
+	}
+}
+
+func TestNormalizeDraftAllowsBlankReportURL(t *testing.T) {
+	report := normalizeDraft(ReportDraft{
+		Title:     "Blank URL",
+		ReportURL: "   ",
+	})
+
+	if report.ReportURL != "" {
+		t.Fatalf("ReportURL = %q, want blank", report.ReportURL)
 	}
 }
 

@@ -27,6 +27,7 @@ type Report struct {
 	CVSSVector  string    `json:"cvssVector"`
 	Status      string    `json:"status"`
 	SubmittedAt string    `json:"submittedAt"`
+	ReportURL   string    `json:"reportUrl"`
 	Tags        []string  `json:"tags"`
 	Body        string    `json:"body"`
 	PocFiles    []PocFile `json:"pocFiles"`
@@ -44,6 +45,7 @@ type ReportDraft struct {
 	CVSSVector  string    `json:"cvssVector"`
 	Status      string    `json:"status"`
 	SubmittedAt string    `json:"submittedAt"`
+	ReportURL   string    `json:"reportUrl"`
 	Tags        []string  `json:"tags"`
 	Body        string    `json:"body"`
 	PocFiles    []PocFile `json:"pocFiles"`
@@ -200,6 +202,7 @@ func normalizeDraft(draft ReportDraft) Report {
 		CVSSVector:  strings.TrimSpace(draft.CVSSVector),
 		Status:      normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
 		SubmittedAt: strings.TrimSpace(draft.SubmittedAt),
+		ReportURL:   strings.TrimSpace(draft.ReportURL),
 		Tags:        normalizeTags(draft.Tags),
 		Body:        strings.TrimSpace(draft.Body),
 		PocFiles:    normalizePocFiles(draft.PocFiles),

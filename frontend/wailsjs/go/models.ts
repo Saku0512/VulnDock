@@ -28,6 +28,7 @@ export namespace main {
 	    cvssVector: string;
 	    status: string;
 	    submittedAt: string;
+	    reportUrl: string;
 	    tags: string[];
 	    body: string;
 	    pocFiles: PocFile[];
@@ -49,6 +50,7 @@ export namespace main {
 	        this.cvssVector = source["cvssVector"];
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
+	        this.reportUrl = source["reportUrl"];
 	        this.tags = source["tags"];
 	        this.body = source["body"];
 	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
@@ -84,6 +86,7 @@ export namespace main {
 	    cvssVector: string;
 	    status: string;
 	    submittedAt: string;
+	    reportUrl: string;
 	    tags: string[];
 	    body: string;
 	    pocFiles: PocFile[];
@@ -103,6 +106,7 @@ export namespace main {
 	        this.cvssVector = source["cvssVector"];
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
+	        this.reportUrl = source["reportUrl"];
 	        this.tags = source["tags"];
 	        this.body = source["body"];
 	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);

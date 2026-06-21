@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { BrowserOpenURL } from '../wailsjs/runtime/runtime'
   import { DeleteReport, ListReports, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
   import { main } from '../wailsjs/go/models'
   import { calculateCvss, inferCvssVersion } from './cvss'
@@ -15,6 +16,7 @@
     cvssVector: string
     status: Status
     submittedAt: string
+    reportUrl: string
     tags: string[]
     body: string
     pocFiles: PocFile[]
@@ -91,6 +93,7 @@
       cvssVector: '',
       status: 'Draft',
       submittedAt: '',
+      reportUrl: '',
       tags: [],
       body: '',
       pocFiles: []
@@ -134,6 +137,7 @@
       cvssVector: report.cvssVector,
       status: report.status,
       submittedAt: report.submittedAt,
+      reportUrl: report.reportUrl,
       tags: report.tags,
       body: report.body,
       pocFiles: report.pocFiles
@@ -190,6 +194,7 @@
       report.asset,
       report.cvssScore,
       report.cvssVector,
+      report.reportUrl,
       report.body,
       report.pocFiles.map((file) => file.name).join(' '),
       report.tags.join(' ')
@@ -213,6 +218,7 @@
       cvssVector: String(report.cvssVector ?? ''),
       status: normalizeStatus(String(report.status ?? 'Draft')),
       submittedAt: String(report.submittedAt ?? ''),
+      reportUrl: String(report.reportUrl ?? ''),
       tags: Array.isArray(report.tags) ? report.tags.map((tag) => String(tag)) : [],
       body: String(report.body ?? buildLegacyBody(report)),
       pocFiles: normalizePocFiles(report.pocFiles),
@@ -353,6 +359,14 @@
 
   function removePocFile(index: number) {
     draft.pocFiles = draft.pocFiles.filter((_, fileIndex) => fileIndex !== index)
+  }
+
+  function openReportUrl() {
+    const url = draft.reportUrl.trim()
+    if (!url) {
+      return
+    }
+    BrowserOpenURL(url)
   }
 
   function formatFileSize(size: number) {
@@ -507,6 +521,15 @@
         提出日
         <input bind:value={draft.submittedAt} type="date" />
       </label>
+      <div class="report-url-field">
+        <label>
+          報告先URL
+          <input bind:value={draft.reportUrl} placeholder="https://hackerone.com/reports/..." type="url" />
+        </label>
+        <button class="ghost-button link-button" type="button" onclick={openReportUrl} disabled={!draft.reportUrl.trim()}>
+          開く
+        </button>
+      </div>
       <label class="wide">
         CVSSベクター
         <input bind:value={draft.cvssVector} placeholder="CVSS:4.0/... または CVSS:3.1/..." />
