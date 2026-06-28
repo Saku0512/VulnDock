@@ -7,6 +7,8 @@ GO ?= go
 FRONTEND_DIR := frontend
 WAILS_TAGS ?= webkit2_41
 WAILS_FLAGS := -tags $(WAILS_TAGS)
+DIST_DIR := dist
+APP_NAME := VulnDock
 
 .DEFAULT_GOAL := help
 
@@ -21,6 +23,15 @@ dev: ## Run the Wails app in live development mode.
 .PHONY: build
 build: ## Build a redistributable Wails package.
 	$(WAILS) build $(WAILS_FLAGS)
+
+.PHONY: package-linux
+package-linux: build ## Package the Linux desktop app for GitHub Releases.
+	$(RM) -r $(DIST_DIR)/package
+	mkdir -p $(DIST_DIR)/package
+	cp build/bin/$(APP_NAME) $(DIST_DIR)/package/$(APP_NAME)
+	cp build/linux/vulndock.desktop $(DIST_DIR)/package/vulndock.desktop
+	cp build/appicon.png $(DIST_DIR)/package/vulndock.png
+	tar -C $(DIST_DIR)/package -czf $(DIST_DIR)/$(APP_NAME)_linux_$(shell $(GO) env GOARCH).tar.gz .
 
 .PHONY: install
 install: frontend-install ## Install project dependencies.
@@ -69,4 +80,4 @@ doctor: ## Run Wails environment diagnostics.
 
 .PHONY: clean
 clean: ## Remove generated build artifacts.
-	$(RM) -r build/bin $(FRONTEND_DIR)/dist
+	$(RM) -r build/bin $(FRONTEND_DIR)/dist $(DIST_DIR)

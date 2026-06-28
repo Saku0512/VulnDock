@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.24"
+  NODE_VERSION: "22"
+  WAILS_VERSION: "v2.12.0"
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+            asset_os: linux
+          - name: macOS
+            os: macos-latest
+            asset_os: darwin
+          - name: Windows
+            os: windows-latest
+            asset_os: windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux Wails dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build app
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            wails build -tags webkit2_41
+          else
+            wails build
+          fi
+
+      - name: Package Linux app
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          arch="$(go env GOARCH)"
+          mkdir -p dist/package
+          cp build/bin/VulnDock dist/package/VulnDock
+          cp build/linux/vulndock.desktop dist/package/vulndock.desktop
+          cp build/appicon.png dist/package/vulndock.png
+          tar -C dist/package -czf "dist/VulnDock_linux_${arch}.tar.gz" .
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          arch="$(go env GOARCH)"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent build/bin/VulnDock.app "dist/VulnDock_darwin_${arch}.zip"
+
+      - name: Package Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arch = (go env GOARCH)
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path build/bin/VulnDock.exe -DestinationPath "dist/VulnDock_windows_$arch.zip"
+
+      - name: Upload desktop app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VulnDock-${{ matrix.asset_os }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

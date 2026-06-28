@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=VulnDock
+Comment=Organize vulnerability reports and PoC attachments
+Exec=VulnDock
+Icon=vulndock
+Terminal=false
+Categories=Development;Security;Utility;
+StartupNotify=true

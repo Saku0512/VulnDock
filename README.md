@@ -23,7 +23,7 @@ PoC attachments are embedded in that JSON file as data URLs. Avoid attaching sec
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.24+
 - Node.js 22+
 - npm
 - Wails v2
@@ -36,6 +36,22 @@ Install frontend dependencies:
 ```sh
 make install
 ```
+
+## Install Desktop App
+
+Install the latest Linux or macOS release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Saku0512/VulnDock/main/scripts/install.sh | bash
+```
+
+Install a specific release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Saku0512/VulnDock/main/scripts/install.sh | VULNDOCK_VERSION=v0.1.0 bash
+```
+
+On Linux this installs `VulnDock` to `~/.local/bin`, adds a desktop entry under `~/.local/share/applications`, and installs the app icon under `~/.local/share/icons`.
 
 ## Development
 
@@ -82,11 +98,28 @@ Build a redistributable Wails package:
 make build
 ```
 
+Package the Linux desktop app in the same format used by GitHub Releases:
+
+```sh
+make package-linux
+```
+
 Build only the frontend assets:
 
 ```sh
 make frontend-build
 ```
+
+## Releasing
+
+Create and push a version tag to build desktop app artifacts and publish them to a GitHub Release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow uploads Linux, macOS, and Windows desktop app archives when the platform build succeeds. The `scripts/install.sh` installer downloads the matching Linux or macOS asset from the latest release by default.
 
 ## Project Layout
 
@@ -96,6 +129,8 @@ make frontend-build
 - `frontend/src/cvss.ts` - CVSS 3.1 and CVSS 4.0 scoring logic.
 - `frontend/test/` - frontend unit tests.
 - `.github/workflows/ci.yml` - GitHub Actions CI.
+- `.github/workflows/release.yml` - GitHub Actions release builds.
+- `scripts/install.sh` - installer for `curl | bash` installs from GitHub Releases.
 
 ## CI
 
