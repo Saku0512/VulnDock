@@ -478,6 +478,99 @@
     return value.replace('T', ' ')
   }
 
+  function contactElapsedLabel(report: Report) {
+    const latest = latestConversationTime(report.conversationLogs)
+    if (!latest) {
+      if (report.conversationLogs.length > 0) {
+        return '連絡日時未設定'
+      }
+
+      const reportDate = reportBaseDate(report)
+      if (!reportDate) {
+        return '連絡なし：報告日未設定'
+      }
+      return `連絡なし：報告から${daysSince(reportDate)}日経過`
+    }
+
+    const elapsedDays = daysSince(latest)
+    if (elapsedDays <= 0) {
+      return '最終連絡 今日'
+    }
+    return `最終連絡から${elapsedDays}日経過`
+  }
+
+  function contactElapsedClass(report: Report) {
+    const latest = latestConversationTime(report.conversationLogs)
+    if (!latest) {
+      if (report.conversationLogs.length > 0) {
+        return 'contact-age-undated'
+      }
+
+      const reportDate = reportBaseDate(report)
+      if (!reportDate) {
+        return 'contact-age-none'
+      }
+
+      const elapsedDays = daysSince(reportDate)
+      if (elapsedDays >= 14) {
+        return 'contact-age-stale'
+      }
+      if (elapsedDays >= 7) {
+        return 'contact-age-watch'
+      }
+      return 'contact-age-none'
+    }
+
+    const elapsedDays = daysSince(latest)
+    if (elapsedDays >= 14) {
+      return 'contact-age-stale'
+    }
+    if (elapsedDays >= 7) {
+      return 'contact-age-watch'
+    }
+    return 'contact-age-fresh'
+  }
+
+  function latestConversationTime(logs: ConversationEntry[]) {
+    let latest = 0
+    for (const log of logs) {
+      const time = new Date(log.communicatedAt).getTime()
+      if (Number.isFinite(time) && time > latest) {
+        latest = time
+      }
+    }
+    return latest > 0 ? new Date(latest) : null
+  }
+
+  function reportBaseDate(report: Report) {
+    return parseLocalDate(report.submittedAt) || parseLocalDate(report.createdAt)
+  }
+
+  function parseLocalDate(value: string) {
+    value = value.trim()
+    if (!value) {
+      return null
+    }
+
+    const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (dateOnly) {
+      return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    }
+
+    const date = new Date(value)
+    return Number.isFinite(date.getTime()) ? date : null
+  }
+
+  function daysSince(date: Date) {
+    const today = startOfLocalDay(new Date()).getTime()
+    const target = startOfLocalDay(date).getTime()
+    return Math.max(0, Math.floor((today - target) / 86400000))
+  }
+
+  function startOfLocalDay(date: Date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  }
+
   function conversationLogsToText(logs: ConversationEntry[]) {
     return logs
       .map((log) => `${log.from} ${log.to} ${log.communicatedAt} ${log.body}`)
@@ -576,6 +669,7 @@
             </span>
             <span class="item-meta">{report.program || '未分類'} · {statusLabels[report.status]}</span>
             <span class="item-meta">{report.asset || '対象未設定'} · CVSS {report.cvssVersion} · PoC {report.pocFiles.length}件</span>
+            <span class={`contact-age ${contactElapsedClass(report)}`}>{contactElapsedLabel(report)}</span>
           </button>
         {/each}
       {/if}

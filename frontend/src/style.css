@@ -235,6 +235,35 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.contact-age {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-age-fresh {
+  background: #e8f5ef;
+  color: #267b68;
+}
+
+.contact-age-watch,
+.contact-age-undated {
+  background: #fff6db;
+  color: #7a5f12;
+}
+
+.contact-age-stale,
+.contact-age-none {
+  background: #f5e8ea;
+  color: #9b293d;
+}
+
 .severity {
   flex: 0 0 auto;
   border-radius: 999px;
