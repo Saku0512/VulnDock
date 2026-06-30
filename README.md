@@ -1,11 +1,11 @@
 # VulnDock
 
-VulnDock is a desktop app for organizing vulnerability reports, PoC attachments, CVSS vectors, and report notes in one local workspace. It is built with Wails, Go, Svelte, and TypeScript.
+VulnDock is a desktop app for organizing vulnerability report metadata, PoC attachments, and CVSS vectors in one local workspace. It is built with Wails, Go, Svelte, and TypeScript.
 
 ## Features
 
 - Create, edit, search, and delete vulnerability reports.
-- Track program, target asset, status, submission date, tags, and report body.
+- Track program, target asset, status, submission date, tags, and report URL.
 - Store PoC files as report attachments.
 - Calculate CVSS 3.1 and CVSS 4.0 scores automatically from vector strings.
 - Filter reports by status and CVSS rating.

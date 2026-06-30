@@ -61,7 +61,7 @@ func TestNormalizeDraftAllowsBlankReportURL(t *testing.T) {
 }
 
 func TestMigrateReportsLegacyFields(t *testing.T) {
-	reports := migrateReports([]storedReport{
+	reports, hadReportContent := migrateReports([]storedReport{
 		{
 			Report: Report{
 				ID:    "legacy",
@@ -86,11 +86,8 @@ func TestMigrateReportsLegacyFields(t *testing.T) {
 	if report.CVSSScore != "7.0" {
 		t.Fatalf("CVSSScore = %q, want 7.0", report.CVSSScore)
 	}
-	if !strings.Contains(report.Body, "## 概要\nShort summary") {
-		t.Fatalf("Body missing migrated summary: %q", report.Body)
-	}
-	if !strings.Contains(report.Body, "## 影響\nAccount takeover") {
-		t.Fatalf("Body missing migrated impact: %q", report.Body)
+	if !hadReportContent {
+		t.Fatal("hadReportContent = false, want true")
 	}
 	if got := strings.Join(report.Tags, ","); got != "auth" {
 		t.Fatalf("Tags = %q, want auth", got)

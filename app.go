@@ -29,7 +29,6 @@ type Report struct {
 	SubmittedAt string    `json:"submittedAt"`
 	ReportURL   string    `json:"reportUrl"`
 	Tags        []string  `json:"tags"`
-	Body        string    `json:"body"`
 	PocFiles    []PocFile `json:"pocFiles"`
 	CreatedAt   string    `json:"createdAt"`
 	UpdatedAt   string    `json:"updatedAt"`
@@ -47,7 +46,6 @@ type ReportDraft struct {
 	SubmittedAt string    `json:"submittedAt"`
 	ReportURL   string    `json:"reportUrl"`
 	Tags        []string  `json:"tags"`
-	Body        string    `json:"body"`
 	PocFiles    []PocFile `json:"pocFiles"`
 }
 
@@ -61,6 +59,7 @@ type PocFile struct {
 type storedReport struct {
 	Report
 	Severity string `json:"severity"`
+	Body     string `json:"body"`
 	Summary  string `json:"summary"`
 	Impact   string `json:"impact"`
 	Steps    string `json:"steps"`
@@ -170,8 +169,11 @@ func (a *App) loadReports() ([]Report, error) {
 		return nil, err
 	}
 
-	reports := migrateReports(stored)
+	reports, hadReportContent := migrateReports(stored)
 	sortReports(reports)
+	if hadReportContent {
+		return reports, a.saveReports(reports)
+	}
 	return reports, nil
 }
 
@@ -204,18 +206,16 @@ func normalizeDraft(draft ReportDraft) Report {
 		SubmittedAt: strings.TrimSpace(draft.SubmittedAt),
 		ReportURL:   strings.TrimSpace(draft.ReportURL),
 		Tags:        normalizeTags(draft.Tags),
-		Body:        strings.TrimSpace(draft.Body),
 		PocFiles:    normalizePocFiles(draft.PocFiles),
 	}
 }
 
-func migrateReports(stored []storedReport) []Report {
+func migrateReports(stored []storedReport) ([]Report, bool) {
 	reports := make([]Report, 0, len(stored))
+	hadReportContent := false
 	for _, item := range stored {
 		report := item.Report
-		if strings.TrimSpace(report.Body) == "" {
-			report.Body = legacyBody(item)
-		}
+		hadReportContent = hadReportContent || hasReportContent(item)
 		if strings.TrimSpace(report.CVSSVersion) == "" {
 			report.CVSSVersion = "3.1"
 		}
@@ -229,30 +229,24 @@ func migrateReports(stored []storedReport) []Report {
 		report.PocFiles = normalizePocFiles(report.PocFiles)
 		reports = append(reports, report)
 	}
-	return reports
+	return reports, hadReportContent
 }
 
-func legacyBody(report storedReport) string {
-	sections := []struct {
-		title string
-		value string
-	}{
-		{title: "概要", value: report.Summary},
-		{title: "影響", value: report.Impact},
-		{title: "再現手順", value: report.Steps},
-		{title: "証跡リンク / 添付メモ", value: report.Evidence},
-		{title: "メモ", value: report.Notes},
+func hasReportContent(report storedReport) bool {
+	values := []string{
+		report.Body,
+		report.Summary,
+		report.Impact,
+		report.Steps,
+		report.Evidence,
+		report.Notes,
 	}
-
-	parts := []string{}
-	for _, section := range sections {
-		value := strings.TrimSpace(section.value)
-		if value == "" {
-			continue
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return true
 		}
-		parts = append(parts, "## "+section.title+"\n"+value)
 	}
-	return strings.Join(parts, "\n\n")
+	return false
 }
 
 func normalizePocFiles(files []PocFile) []PocFile {

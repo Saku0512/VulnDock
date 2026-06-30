@@ -30,7 +30,6 @@ export namespace main {
 	    submittedAt: string;
 	    reportUrl: string;
 	    tags: string[];
-	    body: string;
 	    pocFiles: PocFile[];
 	    createdAt: string;
 	    updatedAt: string;
@@ -52,7 +51,6 @@ export namespace main {
 	        this.submittedAt = source["submittedAt"];
 	        this.reportUrl = source["reportUrl"];
 	        this.tags = source["tags"];
-	        this.body = source["body"];
 	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
@@ -88,7 +86,6 @@ export namespace main {
 	    submittedAt: string;
 	    reportUrl: string;
 	    tags: string[];
-	    body: string;
 	    pocFiles: PocFile[];
 	
 	    static createFrom(source: any = {}) {
@@ -108,7 +105,6 @@ export namespace main {
 	        this.submittedAt = source["submittedAt"];
 	        this.reportUrl = source["reportUrl"];
 	        this.tags = source["tags"];
-	        this.body = source["body"];
 	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
 	    }
 	

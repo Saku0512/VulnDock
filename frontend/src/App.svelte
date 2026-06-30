@@ -18,7 +18,6 @@
     submittedAt: string
     reportUrl: string
     tags: string[]
-    body: string
     pocFiles: PocFile[]
     createdAt: string
     updatedAt: string
@@ -95,7 +94,6 @@
       submittedAt: '',
       reportUrl: '',
       tags: [],
-      body: '',
       pocFiles: []
     }
   }
@@ -139,7 +137,6 @@
       submittedAt: report.submittedAt,
       reportUrl: report.reportUrl,
       tags: report.tags,
-      body: report.body,
       pocFiles: report.pocFiles
     }
     tagsText = report.tags.join(', ')
@@ -195,7 +192,6 @@
       report.cvssScore,
       report.cvssVector,
       report.reportUrl,
-      report.body,
       report.pocFiles.map((file) => file.name).join(' '),
       report.tags.join(' ')
     ].join(' ').toLowerCase()
@@ -220,7 +216,6 @@
       submittedAt: String(report.submittedAt ?? ''),
       reportUrl: String(report.reportUrl ?? ''),
       tags: Array.isArray(report.tags) ? report.tags.map((tag) => String(tag)) : [],
-      body: String(report.body ?? buildLegacyBody(report)),
       pocFiles: normalizePocFiles(report.pocFiles),
       createdAt: String(report.createdAt ?? ''),
       updatedAt: String(report.updatedAt ?? '')
@@ -297,22 +292,6 @@
       default:
         return ''
     }
-  }
-
-  function buildLegacyBody(report: Record<string, unknown>) {
-    const sections = [
-      ['概要', report.summary],
-      ['影響', report.impact],
-      ['再現手順', report.steps],
-      ['証跡リンク / 添付メモ', report.evidence],
-      ['メモ', report.notes]
-    ]
-
-    return sections
-      .map(([title, value]) => [title, String(value ?? '').trim()])
-      .filter(([, value]) => value)
-      .map(([title, value]) => `## ${title}\n${value}`)
-      .join('\n\n')
   }
 
   function normalizePocFiles(source: unknown): PocFile[] {
@@ -541,11 +520,6 @@
     </div>
 
     <div class="writing-grid">
-      <label class="wide writing-main">
-        レポート本文
-        <textarea bind:value={draft.body} rows="18" placeholder="概要、影響、再現手順、証跡リンク、添付メモなど"></textarea>
-      </label>
-
       <section class="poc-panel">
         <div class="poc-header">
           <p class="eyebrow">PoCファイル</p>
