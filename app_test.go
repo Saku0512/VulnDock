@@ -7,13 +7,18 @@ import (
 
 func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	report := normalizeDraft(ReportDraft{
-		Title:       "  ",
-		CVSSVersion: "4.0",
-		CVSSScore:   "11.72",
-		CVSSVector:  "  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H  ",
-		Status:      "submitted",
-		ReportURL:   "  https://hackerone.com/reports/12345  ",
-		Tags:        []string{"#xss", " XSS ", "", "api"},
+		Title:         "  ",
+		CVSSVersion:   "4.0",
+		CVSSScore:     "11.72",
+		CVSSVector:    "  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H  ",
+		Status:        "submitted",
+		ReportURL:     "  https://hackerone.com/reports/12345  ",
+		MaintainerLog: "  2026-06-30: メンテナーへ再現手順を共有  ",
+		ConversationLogs: []ConversationEntry{
+			{From: "maintainer", To: "maintainer", CommunicatedAt: "  2026-06-30T10:30  ", Body: "  修正予定を共有  "},
+			{From: "自分", To: "メンテナー", Body: "  "},
+		},
+		Tags: []string{"#xss", " XSS ", "", "api"},
 		PocFiles: []PocFile{
 			{Name: " poc.py ", Type: " text/x-python ", Size: -1, Data: " data:text/plain;base64,abc "},
 			{Name: "", Data: "data:text/plain;base64,ignored"},
@@ -38,6 +43,22 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	if report.ReportURL != "https://hackerone.com/reports/12345" {
 		t.Fatalf("ReportURL = %q, want trimmed HackerOne URL", report.ReportURL)
 	}
+	if report.MaintainerLog != "" {
+		t.Fatalf("MaintainerLog = %q, want migrated blank legacy field", report.MaintainerLog)
+	}
+	if len(report.ConversationLogs) != 1 {
+		t.Fatalf("len(ConversationLogs) = %d, want 1", len(report.ConversationLogs))
+	}
+	log := report.ConversationLogs[0]
+	if log.From != "メンテナー" || log.To != "自分" {
+		t.Fatalf("ConversationLog direction = %q -> %q, want メンテナー -> 自分", log.From, log.To)
+	}
+	if log.CommunicatedAt != "2026-06-30T10:30" {
+		t.Fatalf("ConversationLog CommunicatedAt = %q, want trimmed datetime", log.CommunicatedAt)
+	}
+	if log.Body != "修正予定を共有" {
+		t.Fatalf("ConversationLog Body = %q, want trimmed body", log.Body)
+	}
 	if got := strings.Join(report.Tags, ","); got != "xss,api" {
 		t.Fatalf("Tags = %q, want xss,api", got)
 	}
@@ -57,6 +78,24 @@ func TestNormalizeDraftAllowsBlankReportURL(t *testing.T) {
 
 	if report.ReportURL != "" {
 		t.Fatalf("ReportURL = %q, want blank", report.ReportURL)
+	}
+}
+
+func TestNormalizeDraftMigratesLegacyMaintainerLog(t *testing.T) {
+	report := normalizeDraft(ReportDraft{
+		Title:         "Legacy log",
+		MaintainerLog: "  2026-06-30 メンテナーへ影響範囲を共有  ",
+	})
+
+	if len(report.ConversationLogs) != 1 {
+		t.Fatalf("len(ConversationLogs) = %d, want 1", len(report.ConversationLogs))
+	}
+	log := report.ConversationLogs[0]
+	if log.From != "自分" || log.To != "メンテナー" {
+		t.Fatalf("ConversationLog direction = %q -> %q, want 自分 -> メンテナー", log.From, log.To)
+	}
+	if log.Body != "2026-06-30 メンテナーへ影響範囲を共有" {
+		t.Fatalf("ConversationLog Body = %q, want legacy body", log.Body)
 	}
 }
 

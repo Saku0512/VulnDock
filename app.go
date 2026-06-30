@@ -18,35 +18,47 @@ type App struct {
 }
 
 type Report struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Program     string    `json:"program"`
-	Asset       string    `json:"asset"`
-	CVSSVersion string    `json:"cvssVersion"`
-	CVSSScore   string    `json:"cvssScore"`
-	CVSSVector  string    `json:"cvssVector"`
-	Status      string    `json:"status"`
-	SubmittedAt string    `json:"submittedAt"`
-	ReportURL   string    `json:"reportUrl"`
-	Tags        []string  `json:"tags"`
-	PocFiles    []PocFile `json:"pocFiles"`
-	CreatedAt   string    `json:"createdAt"`
-	UpdatedAt   string    `json:"updatedAt"`
+	ID               string              `json:"id"`
+	Title            string              `json:"title"`
+	Program          string              `json:"program"`
+	Asset            string              `json:"asset"`
+	CVSSVersion      string              `json:"cvssVersion"`
+	CVSSScore        string              `json:"cvssScore"`
+	CVSSVector       string              `json:"cvssVector"`
+	Status           string              `json:"status"`
+	SubmittedAt      string              `json:"submittedAt"`
+	ReportURL        string              `json:"reportUrl"`
+	MaintainerLog    string              `json:"maintainerLog"`
+	ConversationLogs []ConversationEntry `json:"conversationLogs"`
+	Tags             []string            `json:"tags"`
+	PocFiles         []PocFile           `json:"pocFiles"`
+	CreatedAt        string              `json:"createdAt"`
+	UpdatedAt        string              `json:"updatedAt"`
 }
 
 type ReportDraft struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Program     string    `json:"program"`
-	Asset       string    `json:"asset"`
-	CVSSVersion string    `json:"cvssVersion"`
-	CVSSScore   string    `json:"cvssScore"`
-	CVSSVector  string    `json:"cvssVector"`
-	Status      string    `json:"status"`
-	SubmittedAt string    `json:"submittedAt"`
-	ReportURL   string    `json:"reportUrl"`
-	Tags        []string  `json:"tags"`
-	PocFiles    []PocFile `json:"pocFiles"`
+	ID               string              `json:"id"`
+	Title            string              `json:"title"`
+	Program          string              `json:"program"`
+	Asset            string              `json:"asset"`
+	CVSSVersion      string              `json:"cvssVersion"`
+	CVSSScore        string              `json:"cvssScore"`
+	CVSSVector       string              `json:"cvssVector"`
+	Status           string              `json:"status"`
+	SubmittedAt      string              `json:"submittedAt"`
+	ReportURL        string              `json:"reportUrl"`
+	MaintainerLog    string              `json:"maintainerLog"`
+	ConversationLogs []ConversationEntry `json:"conversationLogs"`
+	Tags             []string            `json:"tags"`
+	PocFiles         []PocFile           `json:"pocFiles"`
+}
+
+type ConversationEntry struct {
+	ID             string `json:"id"`
+	From           string `json:"from"`
+	To             string `json:"to"`
+	CommunicatedAt string `json:"communicatedAt"`
+	Body           string `json:"body"`
 }
 
 type PocFile struct {
@@ -194,19 +206,23 @@ func (a *App) saveReports(reports []Report) error {
 }
 
 func normalizeDraft(draft ReportDraft) Report {
+	conversationLogs := normalizeConversationLogs(draft.ConversationLogs, draft.MaintainerLog)
+
 	return Report{
-		ID:          strings.TrimSpace(draft.ID),
-		Title:       withDefault(strings.TrimSpace(draft.Title), "Untitled report"),
-		Program:     strings.TrimSpace(draft.Program),
-		Asset:       strings.TrimSpace(draft.Asset),
-		CVSSVersion: normalizeChoice(draft.CVSSVersion, "3.1", []string{"3.1", "4.0"}),
-		CVSSScore:   normalizeCVSSScore(draft.CVSSScore),
-		CVSSVector:  strings.TrimSpace(draft.CVSSVector),
-		Status:      normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
-		SubmittedAt: strings.TrimSpace(draft.SubmittedAt),
-		ReportURL:   strings.TrimSpace(draft.ReportURL),
-		Tags:        normalizeTags(draft.Tags),
-		PocFiles:    normalizePocFiles(draft.PocFiles),
+		ID:               strings.TrimSpace(draft.ID),
+		Title:            withDefault(strings.TrimSpace(draft.Title), "Untitled report"),
+		Program:          strings.TrimSpace(draft.Program),
+		Asset:            strings.TrimSpace(draft.Asset),
+		CVSSVersion:      normalizeChoice(draft.CVSSVersion, "3.1", []string{"3.1", "4.0"}),
+		CVSSScore:        normalizeCVSSScore(draft.CVSSScore),
+		CVSSVector:       strings.TrimSpace(draft.CVSSVector),
+		Status:           normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
+		SubmittedAt:      strings.TrimSpace(draft.SubmittedAt),
+		ReportURL:        strings.TrimSpace(draft.ReportURL),
+		MaintainerLog:    "",
+		ConversationLogs: conversationLogs,
+		Tags:             normalizeTags(draft.Tags),
+		PocFiles:         normalizePocFiles(draft.PocFiles),
 	}
 }
 
@@ -225,6 +241,8 @@ func migrateReports(stored []storedReport) ([]Report, bool) {
 			report.CVSSScore = normalizeCVSSScore(report.CVSSScore)
 		}
 		report.CVSSVector = strings.TrimSpace(report.CVSSVector)
+		report.ConversationLogs = normalizeConversationLogs(report.ConversationLogs, report.MaintainerLog)
+		report.MaintainerLog = ""
 		report.Tags = normalizeTags(report.Tags)
 		report.PocFiles = normalizePocFiles(report.PocFiles)
 		reports = append(reports, report)
@@ -247,6 +265,65 @@ func hasReportContent(report storedReport) bool {
 		}
 	}
 	return false
+}
+
+func normalizeConversationLogs(logs []ConversationEntry, legacyLog string) []ConversationEntry {
+	next := []ConversationEntry{}
+	for i, log := range logs {
+		body := strings.TrimSpace(log.Body)
+		if body == "" {
+			continue
+		}
+
+		from := normalizeParticipant(log.From, "自分")
+		to := normalizeParticipant(log.To, oppositeParticipant(from))
+		if from == to {
+			to = oppositeParticipant(from)
+		}
+
+		id := strings.TrimSpace(log.ID)
+		if id == "" {
+			id = newConversationEntryID(i)
+		}
+
+		next = append(next, ConversationEntry{
+			ID:             id,
+			From:           from,
+			To:             to,
+			CommunicatedAt: strings.TrimSpace(log.CommunicatedAt),
+			Body:           body,
+		})
+	}
+
+	legacyLog = strings.TrimSpace(legacyLog)
+	if len(next) == 0 && legacyLog != "" {
+		next = append(next, ConversationEntry{
+			ID:   newConversationEntryID(0),
+			From: "自分",
+			To:   "メンテナー",
+			Body: legacyLog,
+		})
+	}
+
+	return next
+}
+
+func normalizeParticipant(value string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "自分", "me", "myself", "self":
+		return "自分"
+	case "メンテナー", "maintainer":
+		return "メンテナー"
+	default:
+		return fallback
+	}
+}
+
+func oppositeParticipant(value string) string {
+	if value == "メンテナー" {
+		return "自分"
+	}
+	return "メンテナー"
 }
 
 func normalizePocFiles(files []PocFile) []PocFile {
@@ -357,6 +434,10 @@ func sortReports(reports []Report) {
 
 func newReportID() string {
 	return "report_" + time.Now().UTC().Format("20060102150405.000000000")
+}
+
+func newConversationEntryID(index int) string {
+	return "conversation_" + time.Now().UTC().Format("20060102150405.000000000") + "_" + strconv.Itoa(index)
 }
 
 func defaultStorePath() string {

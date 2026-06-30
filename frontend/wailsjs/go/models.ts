@@ -1,5 +1,25 @@
 export namespace main {
 	
+	export class ConversationEntry {
+	    id: string;
+	    from: string;
+	    to: string;
+	    communicatedAt: string;
+	    body: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.communicatedAt = source["communicatedAt"];
+	        this.body = source["body"];
+	    }
+	}
 	export class PocFile {
 	    name: string;
 	    type: string;
@@ -29,6 +49,8 @@ export namespace main {
 	    status: string;
 	    submittedAt: string;
 	    reportUrl: string;
+	    maintainerLog: string;
+	    conversationLogs: ConversationEntry[];
 	    tags: string[];
 	    pocFiles: PocFile[];
 	    createdAt: string;
@@ -50,6 +72,8 @@ export namespace main {
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
 	        this.reportUrl = source["reportUrl"];
+	        this.maintainerLog = source["maintainerLog"];
+	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
 	        this.tags = source["tags"];
 	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
 	        this.createdAt = source["createdAt"];
@@ -85,6 +109,8 @@ export namespace main {
 	    status: string;
 	    submittedAt: string;
 	    reportUrl: string;
+	    maintainerLog: string;
+	    conversationLogs: ConversationEntry[];
 	    tags: string[];
 	    pocFiles: PocFile[];
 	
@@ -104,6 +130,8 @@ export namespace main {
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
 	        this.reportUrl = source["reportUrl"];
+	        this.maintainerLog = source["maintainerLog"];
+	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
 	        this.tags = source["tags"];
 	        this.pocFiles = this.convertValues(source["pocFiles"], PocFile);
 	    }

@@ -357,6 +357,10 @@ label.wide {
   grid-column: span 2;
 }
 
+label.full-width {
+  grid-column: 1 / -1;
+}
+
 .report-url-field {
   display: grid;
   grid-column: span 2;
@@ -374,7 +378,8 @@ label.wide {
   display: none;
 }
 
-.poc-panel {
+.poc-panel,
+.conversation-panel {
   display: grid;
   grid-column: 1 / -1;
   gap: 10px;
@@ -429,6 +434,59 @@ label.wide {
 .attachment-item span {
   color: #6d7888;
   font-size: 0.72rem;
+}
+
+.conversation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.conversation-body {
+  grid-column: 1 / -1;
+}
+
+.conversation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  border: 1px solid #dce3eb;
+  border-radius: 8px;
+  background: #f7f9fb;
+  padding: 10px;
+}
+
+.conversation-item div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.conversation-item strong {
+  color: #263244;
+  font-size: 0.84rem;
+}
+
+.conversation-item span {
+  color: #6d7888;
+  font-size: 0.74rem;
+}
+
+.conversation-item p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #354255;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .small-button {
@@ -491,6 +549,10 @@ label.wide {
 
   .report-url-field {
     grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .conversation-form {
     grid-template-columns: 1fr;
   }
 

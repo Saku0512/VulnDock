@@ -17,6 +17,8 @@
     status: Status
     submittedAt: string
     reportUrl: string
+    maintainerLog: string
+    conversationLogs: ConversationEntry[]
     tags: string[]
     pocFiles: PocFile[]
     createdAt: string
@@ -30,10 +32,20 @@
     size: number
     data: string
   }
+  type Participant = '自分' | 'メンテナー'
+  type ConversationEntry = {
+    id: string
+    from: Participant
+    to: Participant
+    communicatedAt: string
+    body: string
+  }
+  type ConversationDraft = Omit<ConversationEntry, 'id'>
   type CvssVersion = '3.1' | '4.0'
   type CvssRating = 'Critical' | 'High' | 'Medium' | 'Low' | 'None'
   type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
 
+  const participants: Participant[] = ['自分', 'メンテナー']
   const cvssVersions: CvssVersion[] = ['3.1', '4.0']
   const cvssRatings: CvssRating[] = ['Critical', 'High', 'Medium', 'Low', 'None']
   const statuses: Status[] = ['Draft', 'Submitted', 'Triaged', 'Resolved', 'Duplicate', 'Rejected', 'Paid']
@@ -62,15 +74,18 @@
   let statusFilter = $state<'All' | Status>('All')
   let cvssRatingFilter = $state<'All' | CvssRating>('All')
   let draft = $state<ReportDraft>(emptyDraft())
+  let conversationDraft = $state<ConversationDraft>(emptyConversationDraft())
   let tagsText = $state('')
   let storePath = $state('')
   let loading = $state(true)
   let saving = $state(false)
   let errorMessage = $state('')
   let pocInput = $state<HTMLInputElement>()
+  let hideConversationUntilReopen = $state(false)
 
   let filteredReports = $derived(reports.filter(matchesFilters))
   let selectedReport = $derived(reports.find((report) => report.id === selectedId))
+  let showConversationPanel = $derived(Boolean(selectedReport) && !hideConversationUntilReopen)
   let metrics = $derived(buildMetrics(reports))
 
   $effect(() => {
@@ -93,8 +108,19 @@
       status: 'Draft',
       submittedAt: '',
       reportUrl: '',
+      maintainerLog: '',
+      conversationLogs: [],
       tags: [],
       pocFiles: []
+    }
+  }
+
+  function emptyConversationDraft(): ConversationDraft {
+    return {
+      from: '自分',
+      to: 'メンテナー',
+      communicatedAt: localDateTimeNow(),
+      body: ''
     }
   }
 
@@ -120,10 +146,12 @@
   function createReport() {
     selectedId = ''
     draft = emptyDraft()
+    conversationDraft = emptyConversationDraft()
+    hideConversationUntilReopen = false
     tagsText = ''
   }
 
-  function selectReport(report: Report) {
+  function selectReport(report: Report, options: { showConversation?: boolean } = {}) {
     selectedId = report.id
     draft = {
       id: report.id,
@@ -136,9 +164,13 @@
       status: report.status,
       submittedAt: report.submittedAt,
       reportUrl: report.reportUrl,
+      maintainerLog: report.maintainerLog,
+      conversationLogs: report.conversationLogs.map((log) => ({ ...log })),
       tags: report.tags,
       pocFiles: report.pocFiles
     }
+    conversationDraft = emptyConversationDraft()
+    hideConversationUntilReopen = options.showConversation === false
     tagsText = report.tags.join(', ')
   }
 
@@ -147,6 +179,7 @@
     errorMessage = ''
 
     try {
+      const hideConversationAfterSave = !draft.id || hideConversationUntilReopen
       const saved = normalizeReport(await SaveReport(new main.ReportDraft({
         ...draft,
         tags: tagsText.split(',').map((tag) => tag.trim()).filter(Boolean)
@@ -157,7 +190,7 @@
       } else {
         reports = [saved, ...reports]
       }
-      selectReport(saved)
+      selectReport(saved, { showConversation: !hideConversationAfterSave })
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
@@ -192,6 +225,8 @@
       report.cvssScore,
       report.cvssVector,
       report.reportUrl,
+      report.maintainerLog,
+      conversationLogsToText(report.conversationLogs),
       report.pocFiles.map((file) => file.name).join(' '),
       report.tags.join(' ')
     ].join(' ').toLowerCase()
@@ -203,6 +238,8 @@
 
   function normalizeReport(source: unknown): Report {
     const report = source as Record<string, unknown>
+    const maintainerLog = String(report.maintainerLog ?? '')
+    const conversationLogs = normalizeConversationLogs(report.conversationLogs, maintainerLog)
 
     return {
       id: String(report.id ?? ''),
@@ -215,6 +252,8 @@
       status: normalizeStatus(String(report.status ?? 'Draft')),
       submittedAt: String(report.submittedAt ?? ''),
       reportUrl: String(report.reportUrl ?? ''),
+      maintainerLog: '',
+      conversationLogs,
       tags: Array.isArray(report.tags) ? report.tags.map((tag) => String(tag)) : [],
       pocFiles: normalizePocFiles(report.pocFiles),
       createdAt: String(report.createdAt ?? ''),
@@ -240,6 +279,47 @@
 
   function normalizeStatus(value: string): Status {
     return statuses.includes(value as Status) ? value as Status : 'Draft'
+  }
+
+  function normalizeConversationLogs(source: unknown, legacyLog = ''): ConversationEntry[] {
+    const logs = Array.isArray(source)
+      ? source
+          .map((entry) => entry as Record<string, unknown>)
+          .map((entry, index) => {
+            const from = normalizeParticipant(String(entry.from ?? ''), '自分')
+            const to = normalizeRecipient(String(entry.to ?? ''), from)
+            return {
+              id: String(entry.id ?? `conversation_legacy_${index}`),
+              from,
+              to,
+              communicatedAt: String(entry.communicatedAt ?? ''),
+              body: String(entry.body ?? '').trim()
+            }
+          })
+          .filter((entry) => entry.body)
+      : []
+
+    legacyLog = legacyLog.trim()
+    if (logs.length === 0 && legacyLog) {
+      return [{
+        id: 'conversation_legacy_text',
+        from: '自分',
+        to: 'メンテナー',
+        communicatedAt: '',
+        body: legacyLog
+      }]
+    }
+
+    return logs
+  }
+
+  function normalizeParticipant(value: string, fallback: Participant): Participant {
+    return participants.includes(value as Participant) ? value as Participant : fallback
+  }
+
+  function normalizeRecipient(value: string, from: Participant): Participant {
+    const recipient = normalizeParticipant(value, from === '自分' ? 'メンテナー' : '自分')
+    return recipient === from ? (from === '自分' ? 'メンテナー' : '自分') : recipient
   }
 
   function buildMetrics(source: Report[]) {
@@ -340,6 +420,36 @@
     draft.pocFiles = draft.pocFiles.filter((_, fileIndex) => fileIndex !== index)
   }
 
+  function addConversationLog() {
+    const body = conversationDraft.body.trim()
+    if (!body) {
+      return
+    }
+
+    const from = normalizeParticipant(conversationDraft.from, '自分')
+    const to = normalizeRecipient(conversationDraft.to, from)
+    draft.conversationLogs = [
+      ...draft.conversationLogs,
+      {
+        id: newConversationEntryId(),
+        from,
+        to,
+        communicatedAt: conversationDraft.communicatedAt,
+        body
+      }
+    ]
+    conversationDraft = {
+      from,
+      to,
+      communicatedAt: localDateTimeNow(),
+      body: ''
+    }
+  }
+
+  function removeConversationLog(id: string) {
+    draft.conversationLogs = draft.conversationLogs.filter((log) => log.id !== id)
+  }
+
   function openReportUrl() {
     const url = draft.reportUrl.trim()
     if (!url) {
@@ -359,6 +469,29 @@
       return `${(size / 1024).toFixed(1)} KB`
     }
     return `${(size / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  function formatConversationTime(value: string) {
+    if (!value.trim()) {
+      return '日時未設定'
+    }
+    return value.replace('T', ' ')
+  }
+
+  function conversationLogsToText(logs: ConversationEntry[]) {
+    return logs
+      .map((log) => `${log.from} ${log.to} ${log.communicatedAt} ${log.body}`)
+      .join(' ')
+  }
+
+  function localDateTimeNow() {
+    const now = new Date()
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    return local.toISOString().slice(0, 16)
+  }
+
+  function newConversationEntryId() {
+    return `conversation_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   }
 
   function syncCvssFromVector(vector: string) {
@@ -546,6 +679,59 @@
           {/each}
         </div>
       </section>
+
+      {#if showConversationPanel}
+        <section class="conversation-panel">
+          <div class="poc-header">
+            <p class="eyebrow">メンテナー会話ログ</p>
+            <button class="ghost-button attach-button" type="button" onclick={addConversationLog} disabled={!conversationDraft.body.trim()}>
+              追加
+            </button>
+          </div>
+
+          <div class="conversation-form">
+            <label>
+              送信者
+              <select bind:value={conversationDraft.from}>
+                {#each participants as participant}
+                  <option value={participant}>{participant}</option>
+                {/each}
+              </select>
+            </label>
+            <label>
+              宛先
+              <select bind:value={conversationDraft.to}>
+                {#each participants as participant}
+                  <option value={participant}>{participant}</option>
+                {/each}
+              </select>
+            </label>
+            <label>
+              日時
+              <input bind:value={conversationDraft.communicatedAt} type="datetime-local" />
+            </label>
+            <label class="conversation-body">
+              内容
+              <textarea bind:value={conversationDraft.body} rows="4" placeholder="伝えた内容"></textarea>
+            </label>
+          </div>
+
+          <div class="conversation-list">
+            {#each draft.conversationLogs as log (log.id)}
+              <article class="conversation-item">
+                <div>
+                  <strong>{log.from} → {log.to}</strong>
+                  <span>{formatConversationTime(log.communicatedAt)}</span>
+                </div>
+                <p>{log.body}</p>
+                <button class="small-button" type="button" onclick={() => removeConversationLog(log.id)}>削除</button>
+              </article>
+            {:else}
+              <p class="muted">未記録</p>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
       <section class="storage-note">
         <p class="eyebrow">保存先</p>
