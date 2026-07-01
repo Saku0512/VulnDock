@@ -54,6 +54,7 @@ export namespace main {
 	    rewardCurrency: string;
 	    rewardPaidAt: string;
 	    rewardNote: string;
+	    memo: string;
 	    reportUrl: string;
 	    maintainerLog: string;
 	    conversationLogs: ConversationEntry[];
@@ -83,6 +84,7 @@ export namespace main {
 	        this.rewardCurrency = source["rewardCurrency"];
 	        this.rewardPaidAt = source["rewardPaidAt"];
 	        this.rewardNote = source["rewardNote"];
+	        this.memo = source["memo"];
 	        this.reportUrl = source["reportUrl"];
 	        this.maintainerLog = source["maintainerLog"];
 	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
@@ -126,6 +128,7 @@ export namespace main {
 	    rewardCurrency: string;
 	    rewardPaidAt: string;
 	    rewardNote: string;
+	    memo: string;
 	    reportUrl: string;
 	    maintainerLog: string;
 	    conversationLogs: ConversationEntry[];
@@ -153,6 +156,7 @@ export namespace main {
 	        this.rewardCurrency = source["rewardCurrency"];
 	        this.rewardPaidAt = source["rewardPaidAt"];
 	        this.rewardNote = source["rewardNote"];
+	        this.memo = source["memo"];
 	        this.reportUrl = source["reportUrl"];
 	        this.maintainerLog = source["maintainerLog"];
 	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
