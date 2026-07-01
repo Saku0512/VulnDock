@@ -483,12 +483,17 @@ label.full-width {
   display: none;
 }
 
+.memo-panel,
 .reward-panel,
 .poc-panel,
 .conversation-panel {
   display: grid;
   grid-column: 1 / -1;
   gap: 10px;
+}
+
+.memo-field {
+  grid-column: 1 / -1;
 }
 
 .reward-grid {

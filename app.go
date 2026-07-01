@@ -33,6 +33,7 @@ type Report struct {
 	RewardCurrency   string              `json:"rewardCurrency"`
 	RewardPaidAt     string              `json:"rewardPaidAt"`
 	RewardNote       string              `json:"rewardNote"`
+	Memo             string              `json:"memo"`
 	ReportURL        string              `json:"reportUrl"`
 	MaintainerLog    string              `json:"maintainerLog"`
 	ConversationLogs []ConversationEntry `json:"conversationLogs"`
@@ -58,6 +59,7 @@ type ReportDraft struct {
 	RewardCurrency   string              `json:"rewardCurrency"`
 	RewardPaidAt     string              `json:"rewardPaidAt"`
 	RewardNote       string              `json:"rewardNote"`
+	Memo             string              `json:"memo"`
 	ReportURL        string              `json:"reportUrl"`
 	MaintainerLog    string              `json:"maintainerLog"`
 	ConversationLogs []ConversationEntry `json:"conversationLogs"`
@@ -236,6 +238,7 @@ func normalizeDraft(draft ReportDraft) Report {
 		RewardCurrency:   strings.ToUpper(strings.TrimSpace(draft.RewardCurrency)),
 		RewardPaidAt:     strings.TrimSpace(draft.RewardPaidAt),
 		RewardNote:       strings.TrimSpace(draft.RewardNote),
+		Memo:             strings.TrimSpace(draft.Memo),
 		ReportURL:        strings.TrimSpace(draft.ReportURL),
 		MaintainerLog:    "",
 		ConversationLogs: conversationLogs,
@@ -265,6 +268,7 @@ func migrateReports(stored []storedReport) ([]Report, bool) {
 		report.RewardCurrency = strings.ToUpper(strings.TrimSpace(report.RewardCurrency))
 		report.RewardPaidAt = strings.TrimSpace(report.RewardPaidAt)
 		report.RewardNote = strings.TrimSpace(report.RewardNote)
+		report.Memo = strings.TrimSpace(report.Memo)
 		report.ConversationLogs = normalizeConversationLogs(report.ConversationLogs, report.MaintainerLog)
 		report.MaintainerLog = ""
 		report.Tags = normalizeTags(report.Tags)

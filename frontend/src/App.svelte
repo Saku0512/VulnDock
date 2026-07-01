@@ -22,6 +22,7 @@
     rewardCurrency: string
     rewardPaidAt: string
     rewardNote: string
+    memo: string
     reportUrl: string
     maintainerLog: string
     conversationLogs: ConversationEntry[]
@@ -154,6 +155,7 @@
       rewardCurrency: '',
       rewardPaidAt: '',
       rewardNote: '',
+      memo: '',
       reportUrl: '',
       maintainerLog: '',
       conversationLogs: [],
@@ -227,6 +229,7 @@
       rewardCurrency: report.rewardCurrency,
       rewardPaidAt: report.rewardPaidAt,
       rewardNote: report.rewardNote,
+      memo: report.memo,
       reportUrl: report.reportUrl,
       maintainerLog: report.maintainerLog,
       conversationLogs: report.conversationLogs.map((log) => ({ ...log })),
@@ -296,6 +299,7 @@
       report.cvssVector,
       report.nextActionAt,
       rewardSearchText(report),
+      report.memo,
       report.reportUrl,
       report.maintainerLog,
       conversationLogsToText(report.conversationLogs),
@@ -415,6 +419,7 @@
       rewardCurrency: source.rewardCurrency.trim().toUpperCase(),
       rewardPaidAt: source.rewardPaidAt.trim(),
       rewardNote: source.rewardNote.trim(),
+      memo: source.memo.trim(),
       reportUrl: source.reportUrl.trim(),
       maintainerLog: '',
       conversationLogs: source.conversationLogs
@@ -457,6 +462,7 @@
       rewardCurrency: String(report.rewardCurrency ?? ''),
       rewardPaidAt: String(report.rewardPaidAt ?? ''),
       rewardNote: String(report.rewardNote ?? ''),
+      memo: String(report.memo ?? ''),
       reportUrl: String(report.reportUrl ?? ''),
       maintainerLog: '',
       conversationLogs,
@@ -1108,6 +1114,16 @@
     </div>
 
     <div class="writing-grid">
+      <section class="memo-panel">
+        <div class="poc-header">
+          <p class="eyebrow">自由メモ</p>
+        </div>
+        <label class="memo-field">
+          メモ
+          <textarea bind:value={draft.memo} rows="3" placeholder="提出時の注意点、再現時の癖、あとで見る補足"></textarea>
+        </label>
+      </section>
+
       <section class="reward-panel">
         <div class="poc-header">
           <p class="eyebrow">報酬メモ</p>

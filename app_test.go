@@ -18,6 +18,7 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 		RewardCurrency: " usd ",
 		RewardPaidAt:   "  2026-07-10  ",
 		RewardNote:     "  初回報奨金  ",
+		Memo:           "  再現時は管理者ロールで確認する  ",
 		ReportURL:      "  https://hackerone.com/reports/12345  ",
 		MaintainerLog:  "  2026-06-30: メンテナーへ再現手順を共有  ",
 		ConversationLogs: []ConversationEntry{
@@ -63,6 +64,9 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	}
 	if report.RewardNote != "初回報奨金" {
 		t.Fatalf("RewardNote = %q, want trimmed note", report.RewardNote)
+	}
+	if report.Memo != "再現時は管理者ロールで確認する" {
+		t.Fatalf("Memo = %q, want trimmed memo", report.Memo)
 	}
 	if report.ReportURL != "https://hackerone.com/reports/12345" {
 		t.Fatalf("ReportURL = %q, want trimmed HackerOne URL", report.ReportURL)
@@ -154,6 +158,9 @@ func TestMigrateReportsLegacyFields(t *testing.T) {
 	}
 	if report.RewardStatus != "Unknown" {
 		t.Fatalf("RewardStatus = %q, want Unknown for legacy report", report.RewardStatus)
+	}
+	if report.Memo != "" {
+		t.Fatalf("Memo = %q, want blank for legacy report", report.Memo)
 	}
 	if !hadReportContent {
 		t.Fatal("hadReportContent = false, want true")
