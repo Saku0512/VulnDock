@@ -7,14 +7,19 @@ import (
 
 func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	report := normalizeDraft(ReportDraft{
-		Title:         "  ",
-		CVSSVersion:   "4.0",
-		CVSSScore:     "11.72",
-		CVSSVector:    "  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H  ",
-		Status:        "submitted",
-		NextActionAt:  "  2026-07-08  ",
-		ReportURL:     "  https://hackerone.com/reports/12345  ",
-		MaintainerLog: "  2026-06-30: メンテナーへ再現手順を共有  ",
+		Title:          "  ",
+		CVSSVersion:    "4.0",
+		CVSSScore:      "11.72",
+		CVSSVector:     "  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H  ",
+		Status:         "submitted",
+		NextActionAt:   "  2026-07-08  ",
+		RewardStatus:   "paid",
+		RewardAmount:   "  500.00  ",
+		RewardCurrency: " usd ",
+		RewardPaidAt:   "  2026-07-10  ",
+		RewardNote:     "  初回報奨金  ",
+		ReportURL:      "  https://hackerone.com/reports/12345  ",
+		MaintainerLog:  "  2026-06-30: メンテナーへ再現手順を共有  ",
 		ConversationLogs: []ConversationEntry{
 			{From: "maintainer", To: "maintainer", CommunicatedAt: "  2026-06-30T10:30  ", Body: "  修正予定を共有  "},
 			{From: "自分", To: "メンテナー", Body: "  "},
@@ -43,6 +48,21 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	}
 	if report.NextActionAt != "2026-07-08" {
 		t.Fatalf("NextActionAt = %q, want trimmed next action date", report.NextActionAt)
+	}
+	if report.RewardStatus != "Paid" {
+		t.Fatalf("RewardStatus = %q, want Paid", report.RewardStatus)
+	}
+	if report.RewardAmount != "500.00" {
+		t.Fatalf("RewardAmount = %q, want trimmed amount", report.RewardAmount)
+	}
+	if report.RewardCurrency != "USD" {
+		t.Fatalf("RewardCurrency = %q, want uppercased currency", report.RewardCurrency)
+	}
+	if report.RewardPaidAt != "2026-07-10" {
+		t.Fatalf("RewardPaidAt = %q, want trimmed paid date", report.RewardPaidAt)
+	}
+	if report.RewardNote != "初回報奨金" {
+		t.Fatalf("RewardNote = %q, want trimmed note", report.RewardNote)
 	}
 	if report.ReportURL != "https://hackerone.com/reports/12345" {
 		t.Fatalf("ReportURL = %q, want trimmed HackerOne URL", report.ReportURL)
@@ -131,6 +151,9 @@ func TestMigrateReportsLegacyFields(t *testing.T) {
 	}
 	if report.NextActionAt != "" {
 		t.Fatalf("NextActionAt = %q, want blank for legacy report", report.NextActionAt)
+	}
+	if report.RewardStatus != "Unknown" {
+		t.Fatalf("RewardStatus = %q, want Unknown for legacy report", report.RewardStatus)
 	}
 	if !hadReportContent {
 		t.Fatal("hadReportContent = false, want true")

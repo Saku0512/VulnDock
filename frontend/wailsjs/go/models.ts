@@ -49,6 +49,11 @@ export namespace main {
 	    status: string;
 	    submittedAt: string;
 	    nextActionAt: string;
+	    rewardStatus: string;
+	    rewardAmount: string;
+	    rewardCurrency: string;
+	    rewardPaidAt: string;
+	    rewardNote: string;
 	    reportUrl: string;
 	    maintainerLog: string;
 	    conversationLogs: ConversationEntry[];
@@ -73,6 +78,11 @@ export namespace main {
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
 	        this.nextActionAt = source["nextActionAt"];
+	        this.rewardStatus = source["rewardStatus"];
+	        this.rewardAmount = source["rewardAmount"];
+	        this.rewardCurrency = source["rewardCurrency"];
+	        this.rewardPaidAt = source["rewardPaidAt"];
+	        this.rewardNote = source["rewardNote"];
 	        this.reportUrl = source["reportUrl"];
 	        this.maintainerLog = source["maintainerLog"];
 	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
@@ -111,6 +121,11 @@ export namespace main {
 	    status: string;
 	    submittedAt: string;
 	    nextActionAt: string;
+	    rewardStatus: string;
+	    rewardAmount: string;
+	    rewardCurrency: string;
+	    rewardPaidAt: string;
+	    rewardNote: string;
 	    reportUrl: string;
 	    maintainerLog: string;
 	    conversationLogs: ConversationEntry[];
@@ -133,6 +148,11 @@ export namespace main {
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
 	        this.nextActionAt = source["nextActionAt"];
+	        this.rewardStatus = source["rewardStatus"];
+	        this.rewardAmount = source["rewardAmount"];
+	        this.rewardCurrency = source["rewardCurrency"];
+	        this.rewardPaidAt = source["rewardPaidAt"];
+	        this.rewardNote = source["rewardNote"];
 	        this.reportUrl = source["reportUrl"];
 	        this.maintainerLog = source["maintainerLog"];
 	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
