@@ -247,6 +247,18 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.next-action {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .contact-age-fresh {
   background: #e8f5ef;
   color: #267b68;
@@ -262,6 +274,27 @@ textarea:focus {
 .contact-age-none {
   background: #f5e8ea;
   color: #9b293d;
+}
+
+.next-action-overdue,
+.next-action-today {
+  background: #f5e8ea;
+  color: #9b293d;
+}
+
+.next-action-upcoming {
+  background: #fff6db;
+  color: #7a5f12;
+}
+
+.next-action-later {
+  background: #e8f5ef;
+  color: #267b68;
+}
+
+.next-action-done {
+  background: #edf0f4;
+  color: #6a7685;
 }
 
 .severity {

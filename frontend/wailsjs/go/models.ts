@@ -48,6 +48,7 @@ export namespace main {
 	    cvssVector: string;
 	    status: string;
 	    submittedAt: string;
+	    nextActionAt: string;
 	    reportUrl: string;
 	    maintainerLog: string;
 	    conversationLogs: ConversationEntry[];
@@ -71,6 +72,7 @@ export namespace main {
 	        this.cvssVector = source["cvssVector"];
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
+	        this.nextActionAt = source["nextActionAt"];
 	        this.reportUrl = source["reportUrl"];
 	        this.maintainerLog = source["maintainerLog"];
 	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
@@ -108,6 +110,7 @@ export namespace main {
 	    cvssVector: string;
 	    status: string;
 	    submittedAt: string;
+	    nextActionAt: string;
 	    reportUrl: string;
 	    maintainerLog: string;
 	    conversationLogs: ConversationEntry[];
@@ -129,6 +132,7 @@ export namespace main {
 	        this.cvssVector = source["cvssVector"];
 	        this.status = source["status"];
 	        this.submittedAt = source["submittedAt"];
+	        this.nextActionAt = source["nextActionAt"];
 	        this.reportUrl = source["reportUrl"];
 	        this.maintainerLog = source["maintainerLog"];
 	        this.conversationLogs = this.convertValues(source["conversationLogs"], ConversationEntry);
@@ -156,4 +160,3 @@ export namespace main {
 	}
 
 }
-
