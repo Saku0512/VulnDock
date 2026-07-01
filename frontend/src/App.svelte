@@ -87,13 +87,28 @@
   let selectedReport = $derived(reports.find((report) => report.id === selectedId))
   let showConversationPanel = $derived(Boolean(selectedReport) && !hideConversationUntilReopen)
   let metrics = $derived(buildMetrics(reports))
+  let hasUnsavedChanges = $derived(currentDraftSnapshot() !== savedDraftSnapshot())
 
   $effect(() => {
     syncCvssFromVector(draft.cvssVector)
   })
 
-  onMount(async () => {
-    await loadReports()
+  onMount(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) {
+        return
+      }
+
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    void loadReports()
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
   })
 
   function emptyDraft(): ReportDraft {
@@ -132,9 +147,9 @@
       reports = (await ListReports()).map(normalizeReport)
       storePath = await StorePath()
       if (reports.length > 0) {
-        selectReport(reports[0])
+        selectReport(reports[0], { force: true, skipUnsavedCheck: true })
       } else {
-        createReport()
+        createReport({ skipUnsavedCheck: true })
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error)
@@ -143,7 +158,11 @@
     }
   }
 
-  function createReport() {
+  function createReport(options: { skipUnsavedCheck?: boolean } = {}) {
+    if (!options.skipUnsavedCheck && !confirmDiscardUnsavedChanges('新規作成')) {
+      return
+    }
+
     selectedId = ''
     draft = emptyDraft()
     conversationDraft = emptyConversationDraft()
@@ -151,7 +170,14 @@
     tagsText = ''
   }
 
-  function selectReport(report: Report, options: { showConversation?: boolean } = {}) {
+  function selectReport(report: Report, options: { force?: boolean; showConversation?: boolean; skipUnsavedCheck?: boolean } = {}) {
+    if (!options.force && report.id === selectedId) {
+      return
+    }
+    if (!options.skipUnsavedCheck && !confirmDiscardUnsavedChanges('別の報告へ移動')) {
+      return
+    }
+
     selectedId = report.id
     draft = {
       id: report.id,
@@ -180,9 +206,9 @@
 
     try {
       const hideConversationAfterSave = !draft.id || hideConversationUntilReopen
+      const preparedDraft = draftForSave()
       const saved = normalizeReport(await SaveReport(new main.ReportDraft({
-        ...draft,
-        tags: tagsText.split(',').map((tag) => tag.trim()).filter(Boolean)
+        ...preparedDraft
       })))
       const index = reports.findIndex((report) => report.id === saved.id)
       if (index >= 0) {
@@ -190,7 +216,7 @@
       } else {
         reports = [saved, ...reports]
       }
-      selectReport(saved, { showConversation: !hideConversationAfterSave })
+      selectReport(saved, { force: true, showConversation: !hideConversationAfterSave, skipUnsavedCheck: true })
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
@@ -199,7 +225,13 @@
   }
 
   async function deleteCurrentReport() {
-    if (!selectedId || !confirm('この報告を削除しますか？')) {
+    if (!selectedId) {
+      return
+    }
+    if (!confirmDiscardUnsavedChanges('削除')) {
+      return
+    }
+    if (!confirm('この報告を削除しますか？')) {
       return
     }
 
@@ -207,9 +239,9 @@
       await DeleteReport(selectedId)
       reports = reports.filter((report) => report.id !== selectedId)
       if (reports.length > 0) {
-        selectReport(reports[0])
+        selectReport(reports[0], { force: true, skipUnsavedCheck: true })
       } else {
-        createReport()
+        createReport({ skipUnsavedCheck: true })
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error)
@@ -234,6 +266,112 @@
     return (!query || searchable.includes(query))
       && (statusFilter === 'All' || report.status === statusFilter)
       && (cvssRatingFilter === 'All' || cvssRating(report.cvssScore) === cvssRatingFilter)
+  }
+
+  function confirmDiscardUnsavedChanges(action: string) {
+    if (!hasUnsavedChanges) {
+      return true
+    }
+
+    return confirm(`${action}すると未保存の変更が破棄されます。続行しますか？`)
+  }
+
+  function draftForSave(): ReportDraft {
+    return {
+      ...draft,
+      conversationLogs: conversationLogsForSave(),
+      tags: tagsFromText(tagsText)
+    }
+  }
+
+  function conversationLogsForSave() {
+    const logs = draft.conversationLogs.map((log) => ({ ...log }))
+    const pendingLog = pendingConversationLog()
+    return pendingLog ? [...logs, pendingLog] : logs
+  }
+
+  function pendingConversationLog(): ConversationEntry | null {
+    const body = conversationDraft.body.trim()
+    if (!body) {
+      return null
+    }
+
+    const from = normalizeParticipant(conversationDraft.from, '自分')
+    const to = normalizeRecipient(conversationDraft.to, from)
+    return {
+      id: newConversationEntryId(),
+      from,
+      to,
+      communicatedAt: conversationDraft.communicatedAt,
+      body
+    }
+  }
+
+  function currentDraftSnapshot() {
+    return reportSnapshot(draftForComparison())
+  }
+
+  function savedDraftSnapshot() {
+    return reportSnapshot(selectedReport ?? emptyDraft())
+  }
+
+  function draftForComparison(): ReportDraft {
+    const pendingLog = pendingConversationLogForComparison()
+    return {
+      ...draft,
+      conversationLogs: pendingLog
+        ? [...draft.conversationLogs, pendingLog]
+        : draft.conversationLogs,
+      tags: tagsFromText(tagsText)
+    }
+  }
+
+  function pendingConversationLogForComparison(): ConversationEntry | null {
+    const body = conversationDraft.body.trim()
+    if (!body) {
+      return null
+    }
+
+    const from = normalizeParticipant(conversationDraft.from, '自分')
+    return {
+      id: 'pending',
+      from,
+      to: normalizeRecipient(conversationDraft.to, from),
+      communicatedAt: conversationDraft.communicatedAt.trim(),
+      body
+    }
+  }
+
+  function reportSnapshot(source: Report | ReportDraft) {
+    return JSON.stringify({
+      id: source.id,
+      title: withDefault(source.title.trim(), 'Untitled report'),
+      program: source.program.trim(),
+      asset: source.asset.trim(),
+      cvssVersion: normalizeCvssVersion(source.cvssVersion),
+      cvssScore: normalizeCvssScore(source.cvssScore),
+      cvssVector: source.cvssVector.trim(),
+      status: normalizeStatus(source.status),
+      submittedAt: source.submittedAt.trim(),
+      reportUrl: source.reportUrl.trim(),
+      maintainerLog: '',
+      conversationLogs: source.conversationLogs
+        .map((log) => ({
+          id: log.id,
+          from: normalizeParticipant(log.from, '自分'),
+          to: normalizeRecipient(log.to, normalizeParticipant(log.from, '自分')),
+          communicatedAt: log.communicatedAt.trim(),
+          body: log.body.trim()
+        }))
+        .filter((log) => log.body),
+      tags: normalizeTags(source.tags),
+      pocFiles: source.pocFiles.map((file) => ({
+        name: file.name.trim(),
+        type: file.type.trim(),
+        size: Math.max(0, Number(file.size) || 0),
+        data: file.data.trim()
+      }))
+    })
   }
 
   function normalizeReport(source: unknown): Report {
@@ -279,6 +417,33 @@
 
   function normalizeStatus(value: string): Status {
     return statuses.includes(value as Status) ? value as Status : 'Draft'
+  }
+
+  function tagsFromText(value: string) {
+    return normalizeTags(value.split(','))
+  }
+
+  function normalizeTags(tags: string[]) {
+    const seen = new Set<string>()
+    const next: string[] = []
+    for (const tagValue of tags) {
+      const tag = tagValue.trim().replace(/^#+|#+$/g, '')
+      if (!tag) {
+        continue
+      }
+
+      const key = tag.toLowerCase()
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      next.push(tag)
+    }
+    return next
+  }
+
+  function withDefault(value: string, fallback: string) {
+    return value || fallback
   }
 
   function normalizeConversationLogs(source: unknown, legacyLog = ''): ConversationEntry[] {
@@ -612,7 +777,7 @@
           <h1>脆弱性報告</h1>
         </div>
       </div>
-      <button class="icon-button" type="button" title="新規報告" onclick={createReport}>+</button>
+      <button class="icon-button" type="button" title="新規報告" onclick={() => createReport()}>+</button>
     </div>
 
     <div class="metrics-grid" aria-label="Report metrics">
@@ -683,6 +848,9 @@
         <input class="title-input" bind:value={draft.title} placeholder="報告タイトル" aria-label="報告タイトル" />
       </div>
       <div class="action-row">
+        <span class:dirty={hasUnsavedChanges} class="save-status">
+          {saving ? '保存中...' : hasUnsavedChanges ? '未保存の変更' : '保存済み'}
+        </span>
         <button class="ghost-button" type="button" onclick={deleteCurrentReport} disabled={!selectedId}>削除</button>
         <button class="primary-button" type="button" onclick={saveCurrentReport} disabled={saving}>
           {saving ? '保存中...' : '保存'}
