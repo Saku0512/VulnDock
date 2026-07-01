@@ -259,6 +259,18 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.reward-badge {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .contact-age-fresh {
   background: #e8f5ef;
   color: #267b68;
@@ -293,6 +305,22 @@ textarea:focus {
 }
 
 .next-action-done {
+  background: #edf0f4;
+  color: #6a7685;
+}
+
+.reward-paid {
+  background: #e8f5ef;
+  color: #267b68;
+}
+
+.reward-pending {
+  background: #fff6db;
+  color: #7a5f12;
+}
+
+.reward-none,
+.reward-unknown {
   background: #edf0f4;
   color: #6a7685;
 }
@@ -455,11 +483,22 @@ label.full-width {
   display: none;
 }
 
+.reward-panel,
 .poc-panel,
 .conversation-panel {
   display: grid;
   grid-column: 1 / -1;
   gap: 10px;
+}
+
+.reward-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reward-note {
+  grid-column: 1 / -1;
 }
 
 .poc-header {
@@ -630,6 +669,10 @@ label.full-width {
   }
 
   .conversation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .reward-grid {
     grid-template-columns: 1fr;
   }
 

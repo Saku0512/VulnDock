@@ -28,6 +28,11 @@ type Report struct {
 	Status           string              `json:"status"`
 	SubmittedAt      string              `json:"submittedAt"`
 	NextActionAt     string              `json:"nextActionAt"`
+	RewardStatus     string              `json:"rewardStatus"`
+	RewardAmount     string              `json:"rewardAmount"`
+	RewardCurrency   string              `json:"rewardCurrency"`
+	RewardPaidAt     string              `json:"rewardPaidAt"`
+	RewardNote       string              `json:"rewardNote"`
 	ReportURL        string              `json:"reportUrl"`
 	MaintainerLog    string              `json:"maintainerLog"`
 	ConversationLogs []ConversationEntry `json:"conversationLogs"`
@@ -48,6 +53,11 @@ type ReportDraft struct {
 	Status           string              `json:"status"`
 	SubmittedAt      string              `json:"submittedAt"`
 	NextActionAt     string              `json:"nextActionAt"`
+	RewardStatus     string              `json:"rewardStatus"`
+	RewardAmount     string              `json:"rewardAmount"`
+	RewardCurrency   string              `json:"rewardCurrency"`
+	RewardPaidAt     string              `json:"rewardPaidAt"`
+	RewardNote       string              `json:"rewardNote"`
 	ReportURL        string              `json:"reportUrl"`
 	MaintainerLog    string              `json:"maintainerLog"`
 	ConversationLogs []ConversationEntry `json:"conversationLogs"`
@@ -221,6 +231,11 @@ func normalizeDraft(draft ReportDraft) Report {
 		Status:           normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
 		SubmittedAt:      strings.TrimSpace(draft.SubmittedAt),
 		NextActionAt:     strings.TrimSpace(draft.NextActionAt),
+		RewardStatus:     normalizeRewardStatus(draft.RewardStatus),
+		RewardAmount:     strings.TrimSpace(draft.RewardAmount),
+		RewardCurrency:   strings.ToUpper(strings.TrimSpace(draft.RewardCurrency)),
+		RewardPaidAt:     strings.TrimSpace(draft.RewardPaidAt),
+		RewardNote:       strings.TrimSpace(draft.RewardNote),
 		ReportURL:        strings.TrimSpace(draft.ReportURL),
 		MaintainerLog:    "",
 		ConversationLogs: conversationLogs,
@@ -245,6 +260,11 @@ func migrateReports(stored []storedReport) ([]Report, bool) {
 		}
 		report.CVSSVector = strings.TrimSpace(report.CVSSVector)
 		report.NextActionAt = strings.TrimSpace(report.NextActionAt)
+		report.RewardStatus = normalizeRewardStatus(report.RewardStatus)
+		report.RewardAmount = strings.TrimSpace(report.RewardAmount)
+		report.RewardCurrency = strings.ToUpper(strings.TrimSpace(report.RewardCurrency))
+		report.RewardPaidAt = strings.TrimSpace(report.RewardPaidAt)
+		report.RewardNote = strings.TrimSpace(report.RewardNote)
 		report.ConversationLogs = normalizeConversationLogs(report.ConversationLogs, report.MaintainerLog)
 		report.MaintainerLog = ""
 		report.Tags = normalizeTags(report.Tags)
@@ -403,6 +423,10 @@ func normalizeTags(tags []string) []string {
 		next = append(next, tag)
 	}
 	return next
+}
+
+func normalizeRewardStatus(value string) string {
+	return normalizeChoice(value, "Unknown", []string{"Unknown", "Pending", "Paid", "None"})
 }
 
 func normalizeChoice(value string, fallback string, allowed []string) string {

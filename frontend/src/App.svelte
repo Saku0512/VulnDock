@@ -17,6 +17,11 @@
     status: Status
     submittedAt: string
     nextActionAt: string
+    rewardStatus: RewardStatus
+    rewardAmount: string
+    rewardCurrency: string
+    rewardPaidAt: string
+    rewardNote: string
     reportUrl: string
     maintainerLog: string
     conversationLogs: ConversationEntry[]
@@ -46,6 +51,7 @@
   type CvssRating = 'Critical' | 'High' | 'Medium' | 'Low' | 'None'
   type NextActionFilter = 'All' | 'Overdue' | 'Today' | 'Upcoming'
   type NextActionState = 'none' | 'done' | 'overdue' | 'today' | 'upcoming' | 'later'
+  type RewardStatus = 'Unknown' | 'Pending' | 'Paid' | 'None'
   type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
 
   const participants: Participant[] = ['自分', 'メンテナー']
@@ -53,6 +59,7 @@
   const cvssRatings: CvssRating[] = ['Critical', 'High', 'Medium', 'Low', 'None']
   const statuses: Status[] = ['Draft', 'Submitted', 'Triaged', 'Resolved', 'Duplicate', 'Rejected', 'Paid']
   const nextActionFilters: NextActionFilter[] = ['Overdue', 'Today', 'Upcoming']
+  const rewardStatuses: RewardStatus[] = ['Unknown', 'Pending', 'Paid', 'None']
 
   const statusLabels: Record<Status, string> = {
     Draft: '下書き',
@@ -77,6 +84,13 @@
     Overdue: '期限切れ',
     Today: '今日',
     Upcoming: '7日以内'
+  }
+
+  const rewardStatusLabels: Record<RewardStatus, string> = {
+    Unknown: '未設定',
+    Pending: '未払い',
+    Paid: '支払済み',
+    None: '報酬なし'
   }
 
   let reports = $state<Report[]>([])
@@ -135,6 +149,11 @@
       status: 'Draft',
       submittedAt: '',
       nextActionAt: '',
+      rewardStatus: 'Unknown',
+      rewardAmount: '',
+      rewardCurrency: '',
+      rewardPaidAt: '',
+      rewardNote: '',
       reportUrl: '',
       maintainerLog: '',
       conversationLogs: [],
@@ -203,6 +222,11 @@
       status: report.status,
       submittedAt: report.submittedAt,
       nextActionAt: report.nextActionAt,
+      rewardStatus: report.rewardStatus,
+      rewardAmount: report.rewardAmount,
+      rewardCurrency: report.rewardCurrency,
+      rewardPaidAt: report.rewardPaidAt,
+      rewardNote: report.rewardNote,
       reportUrl: report.reportUrl,
       maintainerLog: report.maintainerLog,
       conversationLogs: report.conversationLogs.map((log) => ({ ...log })),
@@ -271,6 +295,7 @@
       report.cvssScore,
       report.cvssVector,
       report.nextActionAt,
+      rewardSearchText(report),
       report.reportUrl,
       report.maintainerLog,
       conversationLogsToText(report.conversationLogs),
@@ -385,6 +410,11 @@
       status: normalizeStatus(source.status),
       submittedAt: source.submittedAt.trim(),
       nextActionAt: source.nextActionAt.trim(),
+      rewardStatus: normalizeRewardStatus(source.rewardStatus),
+      rewardAmount: source.rewardAmount.trim(),
+      rewardCurrency: source.rewardCurrency.trim().toUpperCase(),
+      rewardPaidAt: source.rewardPaidAt.trim(),
+      rewardNote: source.rewardNote.trim(),
       reportUrl: source.reportUrl.trim(),
       maintainerLog: '',
       conversationLogs: source.conversationLogs
@@ -422,6 +452,11 @@
       status: normalizeStatus(String(report.status ?? 'Draft')),
       submittedAt: String(report.submittedAt ?? ''),
       nextActionAt: String(report.nextActionAt ?? ''),
+      rewardStatus: normalizeRewardStatus(String(report.rewardStatus ?? 'Unknown')),
+      rewardAmount: String(report.rewardAmount ?? ''),
+      rewardCurrency: String(report.rewardCurrency ?? ''),
+      rewardPaidAt: String(report.rewardPaidAt ?? ''),
+      rewardNote: String(report.rewardNote ?? ''),
       reportUrl: String(report.reportUrl ?? ''),
       maintainerLog: '',
       conversationLogs,
@@ -450,6 +485,10 @@
 
   function normalizeStatus(value: string): Status {
     return statuses.includes(value as Status) ? value as Status : 'Draft'
+  }
+
+  function normalizeRewardStatus(value: string): RewardStatus {
+    return rewardStatuses.includes(value as RewardStatus) ? value as RewardStatus : 'Unknown'
   }
 
   function tagsFromText(value: string) {
@@ -580,6 +619,53 @@
 
   function nextActionClass(report: Report) {
     return `next-action-${nextActionState(report)}`
+  }
+
+  function rewardLabel(report: Report) {
+    if (!hasRewardInfo(report)) {
+      return ''
+    }
+
+    const amount = rewardAmountLabel(report)
+    if (report.rewardStatus === 'None') {
+      return '報酬なし'
+    }
+    if (amount) {
+      return `報酬 ${amount}`
+    }
+    return `報酬 ${rewardStatusLabels[report.rewardStatus]}`
+  }
+
+  function rewardAmountLabel(report: Report) {
+    const amount = report.rewardAmount.trim()
+    if (!amount) {
+      return ''
+    }
+
+    const currency = report.rewardCurrency.trim().toUpperCase()
+    return currency ? `${amount} ${currency}` : amount
+  }
+
+  function rewardClass(report: Report) {
+    return `reward-${report.rewardStatus.toLowerCase()}`
+  }
+
+  function rewardSearchText(report: Report) {
+    return [
+      rewardStatusLabels[report.rewardStatus],
+      report.rewardAmount,
+      report.rewardCurrency,
+      report.rewardPaidAt,
+      report.rewardNote
+    ].join(' ')
+  }
+
+  function hasRewardInfo(report: Report) {
+    return report.rewardStatus !== 'Unknown'
+      || Boolean(report.rewardAmount.trim())
+      || Boolean(report.rewardCurrency.trim())
+      || Boolean(report.rewardPaidAt.trim())
+      || Boolean(report.rewardNote.trim())
   }
 
   function nextActionState(report: Report): NextActionState {
@@ -935,6 +1021,9 @@
             {#if report.nextActionAt}
               <span class={`next-action ${nextActionClass(report)}`}>{nextActionLabel(report)}</span>
             {/if}
+            {#if hasRewardInfo(report)}
+              <span class={`reward-badge ${rewardClass(report)}`}>{rewardLabel(report)}</span>
+            {/if}
           </button>
         {/each}
       {/if}
@@ -1019,6 +1108,38 @@
     </div>
 
     <div class="writing-grid">
+      <section class="reward-panel">
+        <div class="poc-header">
+          <p class="eyebrow">報酬メモ</p>
+        </div>
+        <div class="reward-grid">
+          <label>
+            状態
+            <select bind:value={draft.rewardStatus}>
+              {#each rewardStatuses as rewardStatus}
+                <option value={rewardStatus}>{rewardStatusLabels[rewardStatus]}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            金額
+            <input bind:value={draft.rewardAmount} inputmode="decimal" placeholder="500.00" />
+          </label>
+          <label>
+            通貨
+            <input bind:value={draft.rewardCurrency} placeholder="USD / JPY" />
+          </label>
+          <label>
+            支払日
+            <input bind:value={draft.rewardPaidAt} type="date" />
+          </label>
+          <label class="reward-note">
+            メモ
+            <textarea bind:value={draft.rewardNote} rows="2" placeholder="支払い条件や補足"></textarea>
+          </label>
+        </div>
+      </section>
+
       <section class="poc-panel">
         <div class="poc-header">
           <p class="eyebrow">PoCファイル</p>
