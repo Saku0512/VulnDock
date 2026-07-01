@@ -12,6 +12,7 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 		CVSSScore:     "11.72",
 		CVSSVector:    "  CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H  ",
 		Status:        "submitted",
+		NextActionAt:  "  2026-07-08  ",
 		ReportURL:     "  https://hackerone.com/reports/12345  ",
 		MaintainerLog: "  2026-06-30: メンテナーへ再現手順を共有  ",
 		ConversationLogs: []ConversationEntry{
@@ -39,6 +40,9 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	}
 	if report.Status != "Submitted" {
 		t.Fatalf("Status = %q, want Submitted", report.Status)
+	}
+	if report.NextActionAt != "2026-07-08" {
+		t.Fatalf("NextActionAt = %q, want trimmed next action date", report.NextActionAt)
 	}
 	if report.ReportURL != "https://hackerone.com/reports/12345" {
 		t.Fatalf("ReportURL = %q, want trimmed HackerOne URL", report.ReportURL)
@@ -124,6 +128,9 @@ func TestMigrateReportsLegacyFields(t *testing.T) {
 	}
 	if report.CVSSScore != "7.0" {
 		t.Fatalf("CVSSScore = %q, want 7.0", report.CVSSScore)
+	}
+	if report.NextActionAt != "" {
+		t.Fatalf("NextActionAt = %q, want blank for legacy report", report.NextActionAt)
 	}
 	if !hadReportContent {
 		t.Fatal("hadReportContent = false, want true")

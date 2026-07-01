@@ -16,6 +16,7 @@
     cvssVector: string
     status: Status
     submittedAt: string
+    nextActionAt: string
     reportUrl: string
     maintainerLog: string
     conversationLogs: ConversationEntry[]
@@ -43,12 +44,15 @@
   type ConversationDraft = Omit<ConversationEntry, 'id'>
   type CvssVersion = '3.1' | '4.0'
   type CvssRating = 'Critical' | 'High' | 'Medium' | 'Low' | 'None'
+  type NextActionFilter = 'All' | 'Overdue' | 'Today' | 'Upcoming'
+  type NextActionState = 'none' | 'done' | 'overdue' | 'today' | 'upcoming' | 'later'
   type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
 
   const participants: Participant[] = ['自分', 'メンテナー']
   const cvssVersions: CvssVersion[] = ['3.1', '4.0']
   const cvssRatings: CvssRating[] = ['Critical', 'High', 'Medium', 'Low', 'None']
   const statuses: Status[] = ['Draft', 'Submitted', 'Triaged', 'Resolved', 'Duplicate', 'Rejected', 'Paid']
+  const nextActionFilters: NextActionFilter[] = ['Overdue', 'Today', 'Upcoming']
 
   const statusLabels: Record<Status, string> = {
     Draft: '下書き',
@@ -68,11 +72,19 @@
     None: 'None'
   }
 
+  const nextActionFilterLabels: Record<NextActionFilter, string> = {
+    All: 'すべての次アクション',
+    Overdue: '期限切れ',
+    Today: '今日',
+    Upcoming: '7日以内'
+  }
+
   let reports = $state<Report[]>([])
   let selectedId = $state('')
   let search = $state('')
   let statusFilter = $state<'All' | Status>('All')
   let cvssRatingFilter = $state<'All' | CvssRating>('All')
+  let nextActionFilter = $state<'All' | NextActionFilter>('All')
   let draft = $state<ReportDraft>(emptyDraft())
   let conversationDraft = $state<ConversationDraft>(emptyConversationDraft())
   let tagsText = $state('')
@@ -122,6 +134,7 @@
       cvssVector: '',
       status: 'Draft',
       submittedAt: '',
+      nextActionAt: '',
       reportUrl: '',
       maintainerLog: '',
       conversationLogs: [],
@@ -189,6 +202,7 @@
       cvssVector: report.cvssVector,
       status: report.status,
       submittedAt: report.submittedAt,
+      nextActionAt: report.nextActionAt,
       reportUrl: report.reportUrl,
       maintainerLog: report.maintainerLog,
       conversationLogs: report.conversationLogs.map((log) => ({ ...log })),
@@ -256,6 +270,7 @@
       report.asset,
       report.cvssScore,
       report.cvssVector,
+      report.nextActionAt,
       report.reportUrl,
       report.maintainerLog,
       conversationLogsToText(report.conversationLogs),
@@ -266,6 +281,22 @@
     return (!query || searchable.includes(query))
       && (statusFilter === 'All' || report.status === statusFilter)
       && (cvssRatingFilter === 'All' || cvssRating(report.cvssScore) === cvssRatingFilter)
+      && matchesNextActionFilter(report)
+  }
+
+  function matchesNextActionFilter(report: Report) {
+    if (nextActionFilter === 'All') {
+      return true
+    }
+
+    const state = nextActionState(report)
+    if (nextActionFilter === 'Overdue') {
+      return state === 'overdue'
+    }
+    if (nextActionFilter === 'Today') {
+      return state === 'today'
+    }
+    return state === 'today' || state === 'upcoming'
   }
 
   function confirmDiscardUnsavedChanges(action: string) {
@@ -353,6 +384,7 @@
       cvssVector: source.cvssVector.trim(),
       status: normalizeStatus(source.status),
       submittedAt: source.submittedAt.trim(),
+      nextActionAt: source.nextActionAt.trim(),
       reportUrl: source.reportUrl.trim(),
       maintainerLog: '',
       conversationLogs: source.conversationLogs
@@ -389,6 +421,7 @@
       cvssVector: String(report.cvssVector ?? ''),
       status: normalizeStatus(String(report.status ?? 'Draft')),
       submittedAt: String(report.submittedAt ?? ''),
+      nextActionAt: String(report.nextActionAt ?? ''),
       reportUrl: String(report.reportUrl ?? ''),
       maintainerLog: '',
       conversationLogs,
@@ -490,9 +523,9 @@
   function buildMetrics(source: Report[]) {
     const open = source.filter((report) => !['Resolved', 'Rejected', 'Duplicate', 'Paid'].includes(report.status)).length
     const triaged = source.filter((report) => report.status === 'Triaged').length
-    const paid = source.filter((report) => report.status === 'Paid').length
+    const due = source.filter((report) => ['overdue', 'today'].includes(nextActionState(report))).length
     const attachments = source.reduce((sum, report) => sum + report.pocFiles.length, 0)
-    return { open, triaged, paid, attachments }
+    return { open, triaged, due, attachments }
   }
 
   function cvssRating(scoreValue: string): CvssRating {
@@ -519,6 +552,60 @@
 
   function cvssClass(report: Report) {
     return cvssRating(report.cvssScore).toLowerCase()
+  }
+
+  function nextActionLabel(report: Report) {
+    const date = parseLocalDate(report.nextActionAt)
+    if (!date) {
+      return ''
+    }
+
+    const dateLabel = report.nextActionAt.replace('T', ' ')
+    if (isCompletedStatus(report.status)) {
+      return `次アクション ${dateLabel}`
+    }
+
+    const delta = dayDelta(date)
+    if (delta < 0) {
+      return `期限切れ ${Math.abs(delta)}日`
+    }
+    if (delta === 0) {
+      return '次アクション 今日'
+    }
+    if (delta <= 7) {
+      return `次アクション あと${delta}日`
+    }
+    return `次アクション ${dateLabel}`
+  }
+
+  function nextActionClass(report: Report) {
+    return `next-action-${nextActionState(report)}`
+  }
+
+  function nextActionState(report: Report): NextActionState {
+    const date = parseLocalDate(report.nextActionAt)
+    if (!date) {
+      return 'none'
+    }
+    if (isCompletedStatus(report.status)) {
+      return 'done'
+    }
+
+    const delta = dayDelta(date)
+    if (delta < 0) {
+      return 'overdue'
+    }
+    if (delta === 0) {
+      return 'today'
+    }
+    if (delta <= 7) {
+      return 'upcoming'
+    }
+    return 'later'
+  }
+
+  function isCompletedStatus(status: Status) {
+    return ['Resolved', 'Rejected', 'Duplicate', 'Paid'].includes(status)
   }
 
   function legacySeverityScore(value: unknown) {
@@ -727,9 +814,13 @@
   }
 
   function daysSince(date: Date) {
+    return Math.max(0, -dayDelta(date))
+  }
+
+  function dayDelta(date: Date) {
     const today = startOfLocalDay(new Date()).getTime()
     const target = startOfLocalDay(date).getTime()
-    return Math.max(0, Math.floor((today - target) / 86400000))
+    return Math.floor((target - today) / 86400000)
   }
 
   function startOfLocalDay(date: Date) {
@@ -794,8 +885,8 @@
         <p>確認中</p>
       </div>
       <div>
-        <span>{metrics.attachments}</span>
-        <p>PoC添付</p>
+        <span>{metrics.due}</span>
+        <p>要確認</p>
       </div>
     </div>
 
@@ -811,6 +902,12 @@
         <option value="All">すべてのCVSS評価</option>
         {#each cvssRatings as rating}
           <option value={rating}>{cvssRatingLabels[rating]}</option>
+        {/each}
+      </select>
+      <select bind:value={nextActionFilter} aria-label="次アクション">
+        <option value="All">{nextActionFilterLabels.All}</option>
+        {#each nextActionFilters as filter}
+          <option value={filter}>{nextActionFilterLabels[filter]}</option>
         {/each}
       </select>
     </div>
@@ -835,6 +932,9 @@
             <span class="item-meta">{report.program || '未分類'} · {statusLabels[report.status]}</span>
             <span class="item-meta">{report.asset || '対象未設定'} · CVSS {report.cvssVersion} · PoC {report.pocFiles.length}件</span>
             <span class={`contact-age ${contactElapsedClass(report)}`}>{contactElapsedLabel(report)}</span>
+            {#if report.nextActionAt}
+              <span class={`next-action ${nextActionClass(report)}`}>{nextActionLabel(report)}</span>
+            {/if}
           </button>
         {/each}
       {/if}
@@ -894,6 +994,10 @@
       <label>
         提出日
         <input bind:value={draft.submittedAt} type="date" />
+      </label>
+      <label>
+        次アクション
+        <input bind:value={draft.nextActionAt} type="date" />
       </label>
       <div class="report-url-field">
         <label>

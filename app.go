@@ -27,6 +27,7 @@ type Report struct {
 	CVSSVector       string              `json:"cvssVector"`
 	Status           string              `json:"status"`
 	SubmittedAt      string              `json:"submittedAt"`
+	NextActionAt     string              `json:"nextActionAt"`
 	ReportURL        string              `json:"reportUrl"`
 	MaintainerLog    string              `json:"maintainerLog"`
 	ConversationLogs []ConversationEntry `json:"conversationLogs"`
@@ -46,6 +47,7 @@ type ReportDraft struct {
 	CVSSVector       string              `json:"cvssVector"`
 	Status           string              `json:"status"`
 	SubmittedAt      string              `json:"submittedAt"`
+	NextActionAt     string              `json:"nextActionAt"`
 	ReportURL        string              `json:"reportUrl"`
 	MaintainerLog    string              `json:"maintainerLog"`
 	ConversationLogs []ConversationEntry `json:"conversationLogs"`
@@ -218,6 +220,7 @@ func normalizeDraft(draft ReportDraft) Report {
 		CVSSVector:       strings.TrimSpace(draft.CVSSVector),
 		Status:           normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
 		SubmittedAt:      strings.TrimSpace(draft.SubmittedAt),
+		NextActionAt:     strings.TrimSpace(draft.NextActionAt),
 		ReportURL:        strings.TrimSpace(draft.ReportURL),
 		MaintainerLog:    "",
 		ConversationLogs: conversationLogs,
@@ -241,6 +244,7 @@ func migrateReports(stored []storedReport) ([]Report, bool) {
 			report.CVSSScore = normalizeCVSSScore(report.CVSSScore)
 		}
 		report.CVSSVector = strings.TrimSpace(report.CVSSVector)
+		report.NextActionAt = strings.TrimSpace(report.NextActionAt)
 		report.ConversationLogs = normalizeConversationLogs(report.ConversationLogs, report.MaintainerLog)
 		report.MaintainerLog = ""
 		report.Tags = normalizeTags(report.Tags)
