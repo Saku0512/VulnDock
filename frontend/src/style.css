@@ -325,6 +325,21 @@ textarea:focus {
   gap: 8px;
 }
 
+.save-status {
+  align-self: center;
+  max-width: 140px;
+  overflow: hidden;
+  color: #667487;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-status.dirty {
+  color: #9a7a16;
+}
+
 .primary-button,
 .ghost-button {
   min-width: 76px;
