@@ -39,7 +39,9 @@ make install
 
 ## Install Desktop App
 
-Install the latest Linux or macOS release:
+### Linux or macOS installer
+
+Install the latest release with the shell installer:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Saku0512/VulnDock/main/scripts/install.sh | bash
@@ -51,7 +53,47 @@ Install a specific release:
 curl -fsSL https://raw.githubusercontent.com/Saku0512/VulnDock/main/scripts/install.sh | VULNDOCK_VERSION=v0.1.0 bash
 ```
 
-On Linux this installs `VulnDock` to `~/.local/bin`, adds a desktop entry under `~/.local/share/applications`, and installs the app icon under `~/.local/share/icons`.
+On Linux this installs `VulnDock` to `~/.local/bin`, adds a desktop entry under `~/.local/share/applications`, and installs the app icon under `~/.local/share/icons`. On macOS it installs `VulnDock.app` to `~/Applications`.
+
+### Homebrew
+
+Each GitHub Release includes a generated Homebrew formula. Download the formula for the release you want, then install it locally:
+
+```sh
+curl -LO https://github.com/Saku0512/VulnDock/releases/latest/download/vulndock.rb
+brew install ./vulndock.rb
+```
+
+For a pinned version, replace `latest/download` with `download/v0.1.0`.
+
+### Windows
+
+Download `VulnDock_windows_amd64.zip` from the GitHub Release page and run `VulnDock.exe`.
+
+Releases also include a `VulnDock_winget_<version>.zip` manifest bundle. After downloading and extracting it, install with WinGet from the extracted manifest directory:
+
+```powershell
+winget install --manifest .\manifests\s\Saku0512\VulnDock\0.1.0
+```
+
+When the package is published to the community WinGet repository, install it directly:
+
+```powershell
+winget install Saku0512.VulnDock
+```
+
+### Docker
+
+Tagged releases publish a Linux GUI image to GitHub Container Registry. This is mainly useful for testing on Linux hosts with a display server; native desktop packages are usually simpler for daily use.
+
+```sh
+xhost +local:docker
+docker run --rm \
+  -e DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v vulndock-data:/root/.config/VulnDock \
+  ghcr.io/saku0512/vulndock:latest
+```
 
 ## Development
 
@@ -119,7 +161,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow uploads Linux, macOS, and Windows desktop app archives when the platform build succeeds. The `scripts/install.sh` installer downloads the matching Linux or macOS asset from the latest release by default.
+The release workflow uploads Linux, macOS, and Windows desktop app archives when the platform build succeeds. It also generates a Homebrew formula, bundles WinGet manifests, and publishes a Linux GUI Docker image to `ghcr.io/saku0512/vulndock`.
+
+The `scripts/install.sh` installer downloads the matching Linux or macOS asset from the latest release by default.
 
 ## Project Layout
 
@@ -131,6 +175,8 @@ The release workflow uploads Linux, macOS, and Windows desktop app archives when
 - `.github/workflows/ci.yml` - GitHub Actions CI.
 - `.github/workflows/release.yml` - GitHub Actions release builds.
 - `scripts/install.sh` - installer for `curl | bash` installs from GitHub Releases.
+- `scripts/package-release-installers.sh` - release metadata generator for Homebrew and WinGet.
+- `packaging/docker/Dockerfile` - runtime image used by the release workflow.
 
 ## CI
 
