@@ -20,6 +20,20 @@ export namespace main {
 	        this.body = source["body"];
 	    }
 	}
+	export class EncryptedBackup {
+	    fileName: string;
+	    data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EncryptedBackup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fileName = source["fileName"];
+	        this.data = source["data"];
+	    }
+	}
 	export class PocFile {
 	    id: string;
 	    name: string;

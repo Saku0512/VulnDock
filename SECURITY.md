@@ -50,4 +50,6 @@ PoC attachment metadata is stored in `reports.json`. Attachment contents are sto
 
 Treat both locations as sensitive. Do not store secrets, production credentials, private customer data, or exploit material that you are not allowed to keep locally.
 
+Encrypted backup ZIP files protect report data and attachment contents with AES-256-GCM. The backup password is required to authenticate and restore the payload; lost passwords cannot be recovered by VulnDock.
+
 If you share bug reports, screenshots, exported data, or repository issues, review them for sensitive vulnerability details first.

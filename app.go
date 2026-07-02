@@ -1,13 +1,18 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/argon2"
 )
 
 type App struct {
@@ -89,6 +96,11 @@ type PocFile struct {
 	Data string `json:"data,omitempty"`
 }
 
+type EncryptedBackup struct {
+	FileName string `json:"fileName"`
+	Data     string `json:"data"`
+}
+
 type storedReport struct {
 	Report
 	Severity string `json:"severity"`
@@ -99,6 +111,47 @@ type storedReport struct {
 	Evidence string `json:"evidence"`
 	Notes    string `json:"notes"`
 }
+
+type encryptedBackupManifest struct {
+	Format    string          `json:"format"`
+	Algorithm string          `json:"algorithm"`
+	KDF       string          `json:"kdf"`
+	KDFParams backupKDFParams `json:"kdfParams"`
+	Salt      string          `json:"salt"`
+	Nonce     string          `json:"nonce"`
+}
+
+type backupKDFParams struct {
+	Time    uint32 `json:"time"`
+	Memory  uint32 `json:"memory"`
+	Threads uint8  `json:"threads"`
+	KeyLen  uint32 `json:"keyLen"`
+}
+
+type encryptedBackupPayload struct {
+	Format      string             `json:"format"`
+	Reports     []Report           `json:"reports"`
+	Attachments []backupAttachment `json:"attachments"`
+}
+
+type backupAttachment struct {
+	Path string `json:"path"`
+	Data string `json:"data"`
+}
+
+const (
+	encryptedBackupFormat       = "vulndock.encrypted-backup.v1"
+	encryptedBackupManifestName = "vulndock-backup.json"
+	encryptedBackupPayloadName  = "payload.bin"
+	encryptedBackupAlgorithm    = "AES-256-GCM"
+	encryptedBackupKDF          = "argon2id"
+	backupKDFTime               = uint32(3)
+	backupKDFMemory             = uint32(64 * 1024)
+	backupKDFThreads            = uint8(4)
+	backupKDFKeyLen             = uint32(32)
+)
+
+var maxEncryptedBackupBytes = 256 * 1024 * 1024
 
 func NewApp() *App {
 	return &App{}
@@ -116,6 +169,9 @@ func (a *App) ListReports() ([]Report, error) {
 func (a *App) SaveReport(draft ReportDraft) (Report, error) {
 	reports, err := a.loadReports()
 	if err != nil {
+		return Report{}, err
+	}
+	if err := validateIncomingPocFiles(draft.PocFiles); err != nil {
 		return Report{}, err
 	}
 
@@ -191,7 +247,7 @@ func (a *App) OpenPocFile(file PocFile) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(path)
+	info, err := secureAttachmentFileInfo(a.attachmentsDir(), path)
 	if err != nil {
 		return "", err
 	}
@@ -200,6 +256,90 @@ func (a *App) OpenPocFile(file PocFile) (string, error) {
 	}
 
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String(), nil
+}
+
+func (a *App) CreateEncryptedBackup(password string) (EncryptedBackup, error) {
+	if err := validateBackupPassword(password); err != nil {
+		return EncryptedBackup{}, err
+	}
+
+	reports, err := a.loadReports()
+	if err != nil {
+		return EncryptedBackup{}, err
+	}
+
+	payload, err := a.buildBackupPayload(reports)
+	if err != nil {
+		return EncryptedBackup{}, err
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return EncryptedBackup{}, err
+	}
+
+	manifest, ciphertext, err := encryptBackupPayload(payloadJSON, password)
+	if err != nil {
+		return EncryptedBackup{}, err
+	}
+
+	archive, err := buildEncryptedBackupZip(manifest, ciphertext)
+	if err != nil {
+		return EncryptedBackup{}, err
+	}
+
+	suffix, err := randomHex(6)
+	if err != nil {
+		return EncryptedBackup{}, err
+	}
+	return EncryptedBackup{
+		FileName: "vulndock-backup-" + suffix + ".zip",
+		Data:     base64.StdEncoding.EncodeToString(archive),
+	}, nil
+}
+
+func (a *App) RestoreEncryptedBackup(archiveData string, password string) ([]Report, error) {
+	if err := validateBackupPassword(password); err != nil {
+		return nil, err
+	}
+
+	archive, err := decodeBackupArchiveData(archiveData)
+	if err != nil {
+		return nil, err
+	}
+	if len(archive) > maxEncryptedBackupBytes {
+		return nil, errors.New("backup archive is too large")
+	}
+
+	manifest, ciphertext, err := readEncryptedBackupZip(archive)
+	if err != nil {
+		return nil, err
+	}
+	payloadJSON, err := decryptBackupPayload(manifest, ciphertext, password)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload encryptedBackupPayload
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Format != encryptedBackupFormat {
+		return nil, errors.New("unsupported encrypted backup payload")
+	}
+
+	reports, attachments, err := normalizeBackupPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.restoreBackupPayload(reports, attachments); err != nil {
+		return nil, err
+	}
+
+	reports, err = a.loadReports()
+	if err != nil {
+		return nil, err
+	}
+	return reports, nil
 }
 
 func (a *App) loadReports() ([]Report, error) {
@@ -244,23 +384,18 @@ func (a *App) saveReports(reports []Report) error {
 		if _, err := a.persistPocFiles(&reports[i]); err != nil {
 			return err
 		}
+		if err := validatePocFileMetadata(reports[i].PocFiles); err != nil {
+			return err
+		}
 	}
-	sortReports(reports)
-
-	path := a.StorePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	content, err := json.MarshalIndent(reports, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(path, content, 0o600); err != nil {
+	if err := a.writeReportsFile(reports); err != nil {
 		return err
 	}
 	return a.cleanupOrphanAttachments(reports)
+}
+
+func (a *App) writeReportsFile(reports []Report) error {
+	return writeReportsToPath(a.StorePath(), reports)
 }
 
 func (a *App) persistPocFiles(report *Report) (bool, error) {
@@ -288,16 +423,21 @@ func (a *App) writeAttachment(file PocFile) (PocFile, error) {
 		return PocFile{}, fmt.Errorf("decode PoC attachment %q: %w", name, err)
 	}
 
-	id := normalizeAttachmentID(file.ID)
-	if id == "" {
-		id = newAttachmentID()
+	id := newAttachmentID()
+	if err := ensureDirNoSymlink(a.attachmentsDir(), 0o700); err != nil {
+		return PocFile{}, err
 	}
 	dir := filepath.Join(a.attachmentsDir(), id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := ensureDirNoSymlink(dir, 0o700); err != nil {
 		return PocFile{}, err
 	}
 
 	path := filepath.Join(dir, name)
+	if _, err := os.Lstat(path); err == nil {
+		return PocFile{}, errors.New("PoC attachment target already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return PocFile{}, err
+	}
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		return PocFile{}, err
 	}
@@ -387,6 +527,95 @@ func (a *App) attachmentsDir() string {
 	return filepath.Join(filepath.Dir(a.StorePath()), "attachments")
 }
 
+func ensureDirNoSymlink(path string, perm os.FileMode) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s must not be a symlink", path)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s must be a directory", path)
+		}
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(path, perm); err != nil {
+		return err
+	}
+	info, err = os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s must be a directory", path)
+	}
+	return nil
+}
+
+func readSecureAttachmentFile(baseDir string, path string) ([]byte, error) {
+	info, err := secureAttachmentFileInfo(baseDir, path)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, errors.New("attachment path points to a directory")
+	}
+	return os.ReadFile(path)
+}
+
+func secureAttachmentFileInfo(baseDir string, path string) (os.FileInfo, error) {
+	if err := rejectSymlinkPath(baseDir, path); err != nil {
+		return nil, err
+	}
+	return os.Stat(path)
+}
+
+func rejectSymlinkPath(baseDir string, path string) error {
+	base, err := filepath.Abs(baseDir)
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return errors.New("attachment path escapes the attachments directory")
+	}
+
+	current := base
+	baseInfo, err := os.Lstat(current)
+	if err != nil {
+		return err
+	}
+	if baseInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", current)
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s must not be a symlink", current)
+		}
+	}
+	return nil
+}
+
 func (a *App) cleanupOrphanAttachments(reports []Report) error {
 	dir := a.attachmentsDir()
 	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
@@ -435,6 +664,444 @@ func (a *App) cleanupOrphanAttachments(reports []Report) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) buildBackupPayload(reports []Report) (encryptedBackupPayload, error) {
+	payload := encryptedBackupPayload{
+		Format:  encryptedBackupFormat,
+		Reports: reports,
+	}
+
+	seen := map[string]bool{}
+	for _, report := range reports {
+		for _, file := range report.PocFiles {
+			relPath := filepath.ToSlash(strings.TrimSpace(file.Path))
+			if relPath == "" || seen[relPath] {
+				continue
+			}
+			if err := validateBackupAttachmentPath(relPath); err != nil {
+				return encryptedBackupPayload{}, err
+			}
+			path, err := a.attachmentAbsolutePath(file)
+			if err != nil {
+				return encryptedBackupPayload{}, err
+			}
+			content, err := readSecureAttachmentFile(a.attachmentsDir(), path)
+			if err != nil {
+				return encryptedBackupPayload{}, fmt.Errorf("read PoC attachment %q: %w", file.Name, err)
+			}
+
+			payload.Attachments = append(payload.Attachments, backupAttachment{
+				Path: filepath.ToSlash(relPath),
+				Data: base64.StdEncoding.EncodeToString(content),
+			})
+			seen[relPath] = true
+		}
+	}
+	return payload, nil
+}
+
+func encryptBackupPayload(payload []byte, password string) (encryptedBackupManifest, []byte, error) {
+	salt, err := randomBytes(16)
+	if err != nil {
+		return encryptedBackupManifest{}, nil, err
+	}
+	nonce, err := randomBytes(12)
+	if err != nil {
+		return encryptedBackupManifest{}, nil, err
+	}
+
+	params := defaultBackupKDFParams()
+	key := deriveBackupKey(password, salt, params)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return encryptedBackupManifest{}, nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return encryptedBackupManifest{}, nil, err
+	}
+
+	manifest := encryptedBackupManifest{
+		Format:    encryptedBackupFormat,
+		Algorithm: encryptedBackupAlgorithm,
+		KDF:       encryptedBackupKDF,
+		KDFParams: params,
+		Salt:      base64.StdEncoding.EncodeToString(salt),
+		Nonce:     base64.StdEncoding.EncodeToString(nonce),
+	}
+	ciphertext := gcm.Seal(nil, nonce, payload, []byte(encryptedBackupFormat))
+	return manifest, ciphertext, nil
+}
+
+func decryptBackupPayload(manifest encryptedBackupManifest, ciphertext []byte, password string) ([]byte, error) {
+	if manifest.Format != encryptedBackupFormat {
+		return nil, errors.New("unsupported encrypted backup format")
+	}
+	if manifest.Algorithm != encryptedBackupAlgorithm {
+		return nil, errors.New("unsupported encrypted backup encryption algorithm")
+	}
+	if manifest.KDF != encryptedBackupKDF {
+		return nil, errors.New("unsupported encrypted backup key derivation")
+	}
+	if err := validateBackupKDFParams(manifest.KDFParams); err != nil {
+		return nil, err
+	}
+
+	salt, err := base64.StdEncoding.DecodeString(manifest.Salt)
+	if err != nil {
+		return nil, err
+	}
+	nonce, err := base64.StdEncoding.DecodeString(manifest.Nonce)
+	if err != nil {
+		return nil, err
+	}
+
+	key := deriveBackupKey(password, salt, manifest.KDFParams)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(nonce) != gcm.NonceSize() {
+		return nil, errors.New("invalid encrypted backup nonce")
+	}
+
+	payload, err := gcm.Open(nil, nonce, ciphertext, []byte(encryptedBackupFormat))
+	if err != nil {
+		return nil, errors.New("backup password is invalid or archive has been tampered with")
+	}
+	return payload, nil
+}
+
+func buildEncryptedBackupZip(manifest encryptedBackupManifest, ciphertext []byte) ([]byte, error) {
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+
+	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := writeZipFile(archive, encryptedBackupManifestName, manifestJSON); err != nil {
+		return nil, err
+	}
+	if err := writeZipFile(archive, encryptedBackupPayloadName, ciphertext); err != nil {
+		return nil, err
+	}
+	if err := archive.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func readEncryptedBackupZip(data []byte) (encryptedBackupManifest, []byte, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return encryptedBackupManifest{}, nil, err
+	}
+
+	var manifest encryptedBackupManifest
+	var ciphertext []byte
+	for _, file := range reader.File {
+		switch file.Name {
+		case encryptedBackupManifestName:
+			content, err := readZipFile(file)
+			if err != nil {
+				return encryptedBackupManifest{}, nil, err
+			}
+			if err := json.Unmarshal(content, &manifest); err != nil {
+				return encryptedBackupManifest{}, nil, err
+			}
+		case encryptedBackupPayloadName:
+			content, err := readZipFile(file)
+			if err != nil {
+				return encryptedBackupManifest{}, nil, err
+			}
+			ciphertext = content
+		}
+	}
+
+	if manifest.Format == "" {
+		return encryptedBackupManifest{}, nil, errors.New("backup manifest is missing")
+	}
+	if len(ciphertext) == 0 {
+		return encryptedBackupManifest{}, nil, errors.New("backup payload is missing")
+	}
+	return manifest, ciphertext, nil
+}
+
+func writeZipFile(archive *zip.Writer, name string, content []byte) error {
+	writer, err := archive.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = writer.Write(content)
+	return err
+}
+
+func readZipFile(file *zip.File) ([]byte, error) {
+	reader, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(io.LimitReader(reader, int64(maxEncryptedBackupBytes)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > maxEncryptedBackupBytes {
+		return nil, errors.New("backup zip entry is too large")
+	}
+	return content, nil
+}
+
+func normalizeBackupPayload(payload encryptedBackupPayload) ([]Report, map[string][]byte, error) {
+	if err := validateBackupReportAttachmentPaths(payload.Reports); err != nil {
+		return nil, nil, err
+	}
+
+	stored := make([]storedReport, 0, len(payload.Reports))
+	for _, report := range payload.Reports {
+		stored = append(stored, storedReport{Report: report})
+	}
+	reports, _ := migrateReports(stored)
+
+	attachments := map[string][]byte{}
+	for _, attachment := range payload.Attachments {
+		relPath := filepath.ToSlash(strings.TrimSpace(attachment.Path))
+		if err := validateBackupAttachmentPath(relPath); err != nil {
+			return nil, nil, err
+		}
+		content, err := base64.StdEncoding.DecodeString(attachment.Data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("decode backup attachment %q: %w", relPath, err)
+		}
+		attachments[relPath] = content
+	}
+
+	for _, report := range reports {
+		for _, file := range report.PocFiles {
+			relPath := filepath.ToSlash(strings.TrimSpace(file.Path))
+			if relPath == "" {
+				continue
+			}
+			if err := validateBackupAttachmentPath(relPath); err != nil {
+				return nil, nil, err
+			}
+			if _, ok := attachments[relPath]; !ok {
+				return nil, nil, fmt.Errorf("backup is missing attachment content for %q", relPath)
+			}
+		}
+	}
+	return reports, attachments, nil
+}
+
+func validateBackupReportAttachmentPaths(reports []Report) error {
+	for _, report := range reports {
+		for _, file := range report.PocFiles {
+			path := filepath.ToSlash(strings.TrimSpace(file.Path))
+			if path == "" {
+				continue
+			}
+			if err := validateBackupAttachmentPath(path); err != nil {
+				return fmt.Errorf("backup report %q contains invalid attachment path: %w", report.Title, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (a *App) restoreBackupPayload(reports []Report, attachments map[string][]byte) error {
+	baseDir := filepath.Dir(a.StorePath())
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return err
+	}
+
+	stageDir, err := os.MkdirTemp(baseDir, ".vulndock-restore-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stageDir)
+
+	for relPath, content := range attachments {
+		path, err := stagedAttachmentPath(stageDir, relPath)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			return err
+		}
+	}
+
+	if err := validateReportsForRestore(reports); err != nil {
+		return err
+	}
+	stagedReportsPath := filepath.Join(stageDir, "reports.json")
+	if err := writeReportsToPath(stagedReportsPath, reports); err != nil {
+		return err
+	}
+
+	attachmentsDir := a.attachmentsDir()
+	backupAttachmentsDir := filepath.Join(stageDir, "previous-attachments")
+	hadPreviousAttachments := false
+	if _, err := os.Stat(attachmentsDir); err == nil {
+		hadPreviousAttachments = true
+		if err := os.Rename(attachmentsDir, backupAttachmentsDir); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	restorePreviousAttachments := func() {
+		if !hadPreviousAttachments {
+			return
+		}
+		if _, err := os.Stat(attachmentsDir); err == nil {
+			_ = os.RemoveAll(attachmentsDir)
+		}
+		_ = os.Rename(backupAttachmentsDir, attachmentsDir)
+	}
+
+	stagedAttachments := filepath.Join(stageDir, "attachments")
+	if _, err := os.Stat(stagedAttachments); err == nil {
+		if err := os.Rename(stagedAttachments, attachmentsDir); err != nil {
+			restorePreviousAttachments()
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		restorePreviousAttachments()
+		return err
+	}
+
+	if err := os.Rename(stagedReportsPath, a.StorePath()); err != nil {
+		restorePreviousAttachments()
+		return err
+	}
+	if err := a.cleanupOrphanAttachments(reports); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateReportsForRestore(reports []Report) error {
+	for _, report := range reports {
+		if err := validatePocFileMetadata(report.PocFiles); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReportsToPath(path string, reports []Report) error {
+	sortReports(reports)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	content, err := json.MarshalIndent(reports, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, content, 0o600)
+}
+
+func validateBackupAttachmentPath(relPath string) error {
+	if relPath == "" {
+		return errors.New("backup attachment path is required")
+	}
+	if filepath.IsAbs(relPath) {
+		return errors.New("backup attachment path must be relative")
+	}
+	if relPath == "attachments" || !strings.HasPrefix(relPath, "attachments/") {
+		return errors.New("backup attachment path must be under attachments")
+	}
+	_, err := stagedAttachmentPath("", relPath)
+	return err
+}
+
+func stagedAttachmentPath(stageDir string, relPath string) (string, error) {
+	relPath = filepath.ToSlash(strings.TrimSpace(relPath))
+	candidate, err := filepath.Abs(filepath.Join(stageDir, filepath.FromSlash(relPath)))
+	if err != nil {
+		return "", err
+	}
+	base, err := filepath.Abs(filepath.Join(stageDir, "attachments"))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("backup attachment path escapes the attachments directory")
+	}
+	return candidate, nil
+}
+
+func decodeBackupArchiveData(data string) ([]byte, error) {
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return nil, errors.New("backup archive is required")
+	}
+	if strings.HasPrefix(strings.ToLower(data), "data:") {
+		_, payload, ok := strings.Cut(data, ",")
+		if !ok {
+			return nil, errors.New("backup archive data URL is missing payload")
+		}
+		data = payload
+	}
+	return base64.StdEncoding.DecodeString(data)
+}
+
+func validateBackupPassword(password string) error {
+	if strings.TrimSpace(password) == "" {
+		return errors.New("backup password is required")
+	}
+	return nil
+}
+
+func defaultBackupKDFParams() backupKDFParams {
+	return backupKDFParams{
+		Time:    backupKDFTime,
+		Memory:  backupKDFMemory,
+		Threads: backupKDFThreads,
+		KeyLen:  backupKDFKeyLen,
+	}
+}
+
+func validateBackupKDFParams(params backupKDFParams) error {
+	if params != defaultBackupKDFParams() {
+		return errors.New("unsupported encrypted backup key derivation parameters")
+	}
+	return nil
+}
+
+func deriveBackupKey(password string, salt []byte, params backupKDFParams) []byte {
+	return argon2.IDKey([]byte(password), salt, params.Time, params.Memory, params.Threads, params.KeyLen)
+}
+
+func randomBytes(size int) ([]byte, error) {
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func randomHex(size int) (string, error) {
+	data, err := randomBytes(size)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data), nil
 }
 
 func normalizeDraft(draft ReportDraft) Report {
@@ -575,11 +1242,14 @@ func oppositeParticipant(value string) string {
 func normalizePocFiles(files []PocFile) []PocFile {
 	next := []PocFile{}
 	for _, file := range files {
-		id := strings.TrimSpace(file.ID)
+		id := normalizeAttachmentID(file.ID)
 		name := strings.TrimSpace(file.Name)
 		path := filepath.ToSlash(strings.TrimSpace(file.Path))
 		data := strings.TrimSpace(file.Data)
-		if name == "" || (data == "" && path == "" && id == "") {
+		if name == "" || (data == "" && path == "") {
+			continue
+		}
+		if data == "" && validateBackupAttachmentPath(path) != nil {
 			continue
 		}
 		if file.Size < 0 {
@@ -595,6 +1265,57 @@ func normalizePocFiles(files []PocFile) []PocFile {
 		})
 	}
 	return next
+}
+
+func validateIncomingPocFiles(files []PocFile) error {
+	for _, file := range files {
+		name := strings.TrimSpace(file.Name)
+		id := strings.TrimSpace(file.ID)
+		path := filepath.ToSlash(strings.TrimSpace(file.Path))
+		data := strings.TrimSpace(file.Data)
+		if name == "" && id == "" && path == "" && data == "" {
+			continue
+		}
+		if name == "" {
+			return errors.New("PoC attachment name is required")
+		}
+		if id != "" && normalizeAttachmentID(id) != id {
+			return fmt.Errorf("PoC attachment %q id is invalid", name)
+		}
+		if data == "" && path == "" {
+			return fmt.Errorf("PoC attachment %q path is required", name)
+		}
+		if path != "" {
+			if err := validateBackupAttachmentPath(path); err != nil {
+				return fmt.Errorf("PoC attachment %q path is invalid: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validatePocFileMetadata(files []PocFile) error {
+	for _, file := range files {
+		if strings.TrimSpace(file.Data) != "" {
+			continue
+		}
+		name := strings.TrimSpace(file.Name)
+		if name == "" {
+			return errors.New("PoC attachment name is required")
+		}
+		path := filepath.ToSlash(strings.TrimSpace(file.Path))
+		if path == "" {
+			return fmt.Errorf("PoC attachment %q path is required", name)
+		}
+		if err := validateBackupAttachmentPath(path); err != nil {
+			return fmt.Errorf("PoC attachment %q path is invalid: %w", name, err)
+		}
+		id := strings.TrimSpace(file.ID)
+		if id != "" && normalizeAttachmentID(id) != id {
+			return fmt.Errorf("PoC attachment %q id is invalid", name)
+		}
+	}
+	return nil
 }
 
 func normalizeCVSSScore(score string) string {
@@ -695,9 +1416,9 @@ func newConversationEntryID(index int) string {
 }
 
 func newAttachmentID() string {
-	var suffix [4]byte
-	if _, err := rand.Read(suffix[:]); err == nil {
-		return "attachment_" + time.Now().UTC().Format("20060102150405.000000000") + "_" + hex.EncodeToString(suffix[:])
+	suffix, err := randomHex(4)
+	if err == nil {
+		return "attachment_" + time.Now().UTC().Format("20060102150405.000000000") + "_" + suffix
 	}
 	return "attachment_" + time.Now().UTC().Format("20060102150405.000000000")
 }
