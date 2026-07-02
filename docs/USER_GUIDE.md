@@ -32,7 +32,7 @@ VulnDock stores these report fields:
 - Report URL: Link to the external report, advisory, issue, or disclosure page.
 - Conversation Logs: Communication entries between you and the maintainer.
 - Tags: Searchable labels. Leading `#` characters are removed.
-- PoC Files: Attached proof-of-concept files stored in the local JSON data file.
+- PoC Files: Attached proof-of-concept files stored under the local attachments directory.
 
 ## External Interface
 
@@ -48,7 +48,7 @@ The application accepts these external inputs:
 The application produces these outputs and side effects:
 
 - A local JSON report store.
-- Embedded PoC attachment data inside that JSON store.
+- PoC attachment files stored separately under the local attachments directory.
 - Desktop app windows and UI state.
 - Release artifacts produced by the GitHub Actions release workflow.
 
@@ -62,7 +62,13 @@ Reports are stored locally at:
 ~/.config/VulnDock/reports.json
 ```
 
-PoC attachments are embedded in that JSON file as data URLs. Treat the file as sensitive. Do not store production credentials, private customer data, private keys, tokens, or exploit material that you are not allowed to keep locally.
+PoC attachment metadata is stored in that JSON file. Attachment contents are stored separately under:
+
+```text
+~/.config/VulnDock/attachments/
+```
+
+Older data URL attachments are migrated into the attachments directory when reports are loaded. Treat both the JSON file and attachments directory as sensitive. Do not store production credentials, private customer data, private keys, tokens, or exploit material that you are not allowed to keep locally.
 
 ## CVSS Handling
 

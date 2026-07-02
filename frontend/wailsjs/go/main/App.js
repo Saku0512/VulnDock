@@ -10,6 +10,10 @@ export function ListReports() {
   return window['go']['main']['App']['ListReports']();
 }
 
+export function OpenPocFile(arg1) {
+  return window['go']['main']['App']['OpenPocFile'](arg1);
+}
+
 export function SaveReport(arg1) {
   return window['go']['main']['App']['SaveReport'](arg1);
 }

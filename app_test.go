@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -168,6 +171,138 @@ func TestMigrateReportsLegacyFields(t *testing.T) {
 	}
 	if got := strings.Join(report.Tags, ","); got != "auth" {
 		t.Fatalf("Tags = %q, want auth", got)
+	}
+}
+
+func TestListReportsMigratesLegacyPocDataURLsToFiles(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+
+	legacy := []Report{
+		{
+			ID:    "legacy",
+			Title: "Legacy report",
+			PocFiles: []PocFile{
+				{Name: " poc.txt ", Type: " text/plain ", Size: 12, Data: "data:text/plain;base64,YWJj"},
+			},
+		},
+	}
+	content, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(app.storePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(app.storePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reports, err := app.ListReports()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || len(reports[0].PocFiles) != 1 {
+		t.Fatalf("reports = %#v, want one report with one PoC file", reports)
+	}
+
+	file := reports[0].PocFiles[0]
+	if file.Data != "" {
+		t.Fatalf("PocFile.Data = %q, want empty after migration", file.Data)
+	}
+	if file.ID == "" || file.Path == "" {
+		t.Fatalf("PocFile did not get storage metadata: %#v", file)
+	}
+	if file.Name != "poc.txt" {
+		t.Fatalf("PocFile.Name = %q, want trimmed name", file.Name)
+	}
+	if file.Size != 3 {
+		t.Fatalf("PocFile.Size = %d, want decoded size", file.Size)
+	}
+
+	storedPath, err := app.attachmentAbsolutePath(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedContent, err := os.ReadFile(storedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(storedContent) != "abc" {
+		t.Fatalf("stored attachment = %q, want abc", storedContent)
+	}
+
+	savedJSON, err := os.ReadFile(app.storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(savedJSON), "data:text/plain") || strings.Contains(string(savedJSON), `"data"`) {
+		t.Fatalf("reports.json still contains embedded data URL: %s", savedJSON)
+	}
+}
+
+func TestSaveReportStoresPocDataOutsideJSON(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+
+	report, err := app.SaveReport(ReportDraft{
+		Title: "Externalized attachment",
+		PocFiles: []PocFile{
+			{Name: " poc.txt ", Type: " text/plain ", Data: "data:text/plain;base64,YWJj"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.PocFiles) != 1 {
+		t.Fatalf("len(PocFiles) = %d, want 1", len(report.PocFiles))
+	}
+	file := report.PocFiles[0]
+	if file.Data != "" {
+		t.Fatalf("PocFile.Data = %q, want empty after save", file.Data)
+	}
+	if file.ID == "" || file.Path == "" {
+		t.Fatalf("PocFile missing storage metadata: %#v", file)
+	}
+
+	storedPath, err := app.attachmentAbsolutePath(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedContent, err := os.ReadFile(storedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(storedContent) != "abc" {
+		t.Fatalf("stored attachment = %q, want abc", storedContent)
+	}
+
+	openURL, err := app.OpenPocFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(openURL, "file://") {
+		t.Fatalf("OpenPocFile = %q, want file URL", openURL)
+	}
+
+	savedJSON, err := os.ReadFile(app.storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(savedJSON), "data:text/plain") || strings.Contains(string(savedJSON), `"data"`) {
+		t.Fatalf("reports.json still contains embedded data URL: %s", savedJSON)
+	}
+}
+
+func TestOpenPocFileRejectsPathOutsideAttachments(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if err := os.WriteFile(app.storePath, []byte("[]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := app.OpenPocFile(PocFile{Name: "reports.json", Path: "reports.json"}); err == nil {
+		t.Fatal("OpenPocFile accepted a path outside the attachments directory")
 	}
 }
 

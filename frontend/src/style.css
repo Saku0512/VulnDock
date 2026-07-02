@@ -543,11 +543,17 @@ label.full-width {
   gap: 2px;
 }
 
-.attachment-item a {
+.attachment-item a,
+.link-button {
   overflow: hidden;
+  border: 0;
+  background: transparent;
   color: #1f6f8f;
+  cursor: pointer;
   font-size: 0.8rem;
   font-weight: 800;
+  padding: 0;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

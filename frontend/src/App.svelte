@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { BrowserOpenURL } from '../wailsjs/runtime/runtime'
-  import { DeleteReport, ListReports, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
+  import { DeleteReport, ListReports, OpenPocFile, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
   import { main } from '../wailsjs/go/models'
   import { calculateCvss, inferCvssVersion } from './cvss'
   import logoUrl from './assets/images/logo.png'
@@ -34,9 +34,11 @@
 
   type ReportDraft = Omit<Report, 'createdAt' | 'updatedAt'>
   type PocFile = {
+    id: string
     name: string
     type: string
     size: number
+    path: string
     data: string
   }
   type Participant = '自分' | 'メンテナー'
@@ -433,9 +435,11 @@
         .filter((log) => log.body),
       tags: normalizeTags(source.tags),
       pocFiles: source.pocFiles.map((file) => ({
+        id: file.id.trim(),
         name: file.name.trim(),
         type: file.type.trim(),
         size: Math.max(0, Number(file.size) || 0),
+        path: file.path.trim(),
         data: file.data.trim()
       }))
     })
@@ -726,12 +730,14 @@
     return source
       .map((file) => file as Record<string, unknown>)
       .map((file) => ({
+        id: String(file.id ?? '').trim(),
         name: String(file.name ?? '').trim(),
         type: String(file.type ?? '').trim(),
         size: Number(file.size ?? 0),
+        path: String(file.path ?? '').trim(),
         data: String(file.data ?? '').trim()
       }))
-      .filter((file) => file.name && file.data)
+      .filter((file) => file.name && (file.data || file.path || file.id))
   }
 
   async function attachPocFiles(files: FileList | null) {
@@ -750,9 +756,11 @@
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve({
+        id: '',
         name: file.name,
         type: file.type,
         size: file.size,
+        path: '',
         data: String(reader.result ?? '')
       })
       reader.onerror = () => reject(reader.error)
@@ -762,6 +770,22 @@
 
   function removePocFile(index: number) {
     draft.pocFiles = draft.pocFiles.filter((_, fileIndex) => fileIndex !== index)
+  }
+
+  async function openPocFile(file: PocFile) {
+    errorMessage = ''
+
+    try {
+      if (file.data) {
+        BrowserOpenURL(file.data)
+        return
+      }
+
+      const url = await OpenPocFile(new main.PocFile({ ...file }))
+      BrowserOpenURL(url)
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error)
+    }
   }
 
   function addConversationLog() {
@@ -1172,7 +1196,7 @@
           {#each draft.pocFiles as file, index}
             <div class="attachment-item">
               <div>
-                <a href={file.data} download={file.name}>{file.name}</a>
+                <button class="link-button" type="button" onclick={() => openPocFile(file)}>{file.name}</button>
                 <span>{formatFileSize(file.size)}</span>
               </div>
               <button class="small-button" type="button" onclick={() => removePocFile(index)}>削除</button>

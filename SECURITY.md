@@ -42,6 +42,12 @@ VulnDock stores report data locally in:
 ~/.config/VulnDock/reports.json
 ```
 
-PoC attachments are embedded in that file as data URLs. Treat the file as sensitive. Do not store secrets, production credentials, private customer data, or exploit material that you are not allowed to keep locally.
+PoC attachment metadata is stored in `reports.json`. Attachment contents are stored separately under:
+
+```text
+~/.config/VulnDock/attachments/
+```
+
+Treat both locations as sensitive. Do not store secrets, production credentials, private customer data, or exploit material that you are not allowed to keep locally.
 
 If you share bug reports, screenshots, exported data, or repository issues, review them for sensitive vulnerability details first.

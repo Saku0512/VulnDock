@@ -6,6 +6,8 @@ export function DeleteReport(arg1:string):Promise<void>;
 
 export function ListReports():Promise<Array<main.Report>>;
 
+export function OpenPocFile(arg1:main.PocFile):Promise<string>;
+
 export function SaveReport(arg1:main.ReportDraft):Promise<main.Report>;
 
 export function StorePath():Promise<string>;
