@@ -43,6 +43,12 @@ Install frontend dependencies:
 make install
 ```
 
+## Documentation
+
+- [User Guide](docs/USER_GUIDE.md) - usage, local data storage, and external interface details.
+- [Contributing](CONTRIBUTING.md) - contribution process, required checks, and contribution requirements.
+- [Security Policy](SECURITY.md) - private vulnerability reporting and security handling expectations.
+
 ## Install Desktop App
 
 ### Linux or macOS installer
