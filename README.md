@@ -188,6 +188,8 @@ The `scripts/install.sh` installer downloads the matching Linux or macOS asset f
 
 GitHub Actions runs on pushes to `main` and pull requests. The workflow checks Go formatting, `go mod tidy`, Go tests, frontend type checks, frontend unit tests, and frontend build.
 
+OpenSSF Scorecard runs on pushes to `main`, on a weekly schedule, and by manual dispatch. It publishes Scorecard results for the README badge and uploads SARIF results to GitHub code scanning.
+
 ## License
 
 See [LICENSE](LICENSE).
