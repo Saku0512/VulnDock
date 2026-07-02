@@ -1,12 +1,17 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
@@ -303,6 +308,1042 @@ func TestOpenPocFileRejectsPathOutsideAttachments(t *testing.T) {
 
 	if _, err := app.OpenPocFile(PocFile{Name: "reports.json", Path: "reports.json"}); err == nil {
 		t.Fatal("OpenPocFile accepted a path outside the attachments directory")
+	}
+}
+
+func TestOpenPocFileRejectsSymlinkedAttachmentPath(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(filepath.Dir(app.StorePath()), "attachments", "attachment_link")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, err := app.OpenPocFile(PocFile{
+		Name: "outside.txt",
+		Path: "attachments/attachment_link/outside.txt",
+	})
+	if err == nil {
+		t.Fatal("OpenPocFile followed a symlinked attachment path")
+	}
+}
+
+func TestSaveReportRejectsInvalidStoredPocMetadata(t *testing.T) {
+	tests := []struct {
+		name string
+		file PocFile
+	}{
+		{
+			name: "path outside attachments",
+			file: PocFile{Name: "poc.txt", Path: "attachments/../reports.json"},
+		},
+		{
+			name: "absolute path",
+			file: PocFile{Name: "poc.txt", Path: "/tmp/poc.txt"},
+		},
+		{
+			name: "id only metadata",
+			file: PocFile{ID: "attachment_1", Name: "poc.txt"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := NewApp()
+			app.storePath = filepath.Join(t.TempDir(), "reports.json")
+
+			if _, err := app.SaveReport(ReportDraft{
+				Title:    "Invalid metadata",
+				PocFiles: []PocFile{tt.file},
+			}); err == nil {
+				t.Fatal("SaveReport accepted invalid stored PoC metadata")
+			}
+		})
+	}
+}
+
+func TestSaveReportWithDataIgnoresCallerSuppliedAttachmentID(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "poc.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(filepath.Dir(app.StorePath()), "attachments", "attachment_attacker")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	report, err := app.SaveReport(ReportDraft{
+		Title: "Data attachment",
+		PocFiles: []PocFile{{
+			ID:   "attachment_attacker",
+			Name: "poc.txt",
+			Type: "text/plain",
+			Data: "data:text/plain;base64,aW5zaWRl",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.PocFiles[0].ID == "attachment_attacker" {
+		t.Fatal("SaveReport reused caller-supplied attachment id for data upload")
+	}
+	outsideContent, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(outsideContent) != "outside" {
+		t.Fatalf("outside symlink target was modified: %q", outsideContent)
+	}
+}
+
+func TestNormalizePocFilesDropsInvalidStoredMetadata(t *testing.T) {
+	files := normalizePocFiles([]PocFile{
+		{Name: "valid.txt", Path: "attachments/attachment_1/valid.txt"},
+		{Name: "bad.txt", Path: "attachments/../reports.json"},
+		{Name: "id-only.txt", ID: "attachment_2"},
+		{Name: "new.txt", Data: "data:text/plain;base64,YWJj"},
+	})
+
+	if len(files) != 2 {
+		t.Fatalf("len(files) = %d, want 2 valid files: %#v", len(files), files)
+	}
+	if files[0].Name != "valid.txt" || files[1].Name != "new.txt" {
+		t.Fatalf("normalized files = %#v, want valid stored file and new data file", files)
+	}
+}
+
+func TestEncryptedBackupRoundTripRestoresReportsAndAttachments(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	report, err := source.SaveReport(ReportDraft{
+		Title: "Secret report",
+		PocFiles: []PocFile{
+			{Name: "poc.txt", Type: "text/plain", Data: "data:text/plain;base64,YWJj"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	backup, err := source.CreateEncryptedBackup("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(backup.FileName, ".zip") {
+		t.Fatalf("backup.FileName = %q, want .zip suffix", backup.FileName)
+	}
+	if strings.Contains(backup.FileName, time.Now().UTC().Format("20060102")) {
+		t.Fatalf("backup.FileName = %q leaks creation date", backup.FileName)
+	}
+	archive, err := base64.StdEncoding.DecodeString(backup.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(archive), "Secret report") || strings.Contains(string(archive), "abc") {
+		t.Fatalf("encrypted backup archive leaked plaintext: %q", archive)
+	}
+
+	target := NewApp()
+	target.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := target.RestoreEncryptedBackup(backup.Data, "wrong password"); err == nil {
+		t.Fatal("RestoreEncryptedBackup accepted the wrong password")
+	}
+
+	restored, err := target.RestoreEncryptedBackup("data:application/zip;base64,"+backup.Data, "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 1 {
+		t.Fatalf("len(restored) = %d, want 1", len(restored))
+	}
+	if restored[0].Title != report.Title {
+		t.Fatalf("restored title = %q, want %q", restored[0].Title, report.Title)
+	}
+	if len(restored[0].PocFiles) != 1 {
+		t.Fatalf("len(restored[0].PocFiles) = %d, want 1", len(restored[0].PocFiles))
+	}
+
+	restoredPath, err := target.attachmentAbsolutePath(restored[0].PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(restoredPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "abc" {
+		t.Fatalf("restored attachment = %q, want abc", content)
+	}
+}
+
+func TestEncryptedBackupZipContainsOnlyManifestAndCiphertext(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{
+		Title: "Sensitive backup title",
+		PocFiles: []PocFile{
+			{Name: "secret-poc.txt", Type: "text/plain", Data: "data:text/plain;base64,c2VjcmV0LXBvYw=="},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	backup, err := source.CreateEncryptedBackup("strong backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := decodeBackupDataForTest(t, backup.Data)
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := map[string]bool{}
+	secrets := []string{
+		"Sensitive backup title",
+		"secret-poc.txt",
+		"secret-poc",
+		"c2VjcmV0LXBvYw==",
+		"strong backup password",
+	}
+	for _, file := range reader.File {
+		names[file.Name] = true
+		content, err := readZipFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, secret := range secrets {
+			if bytes.Contains(content, []byte(secret)) {
+				t.Fatalf("backup zip entry %q leaked secret %q", file.Name, secret)
+			}
+		}
+	}
+	if len(names) != 2 || !names[encryptedBackupManifestName] || !names[encryptedBackupPayloadName] {
+		t.Fatalf("backup zip entries = %#v, want only manifest and encrypted payload", names)
+	}
+
+	manifest, ciphertext, err := readEncryptedBackupZip(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Algorithm != encryptedBackupAlgorithm {
+		t.Fatalf("manifest.Algorithm = %q, want %q", manifest.Algorithm, encryptedBackupAlgorithm)
+	}
+	if manifest.KDF != encryptedBackupKDF {
+		t.Fatalf("manifest.KDF = %q, want %q", manifest.KDF, encryptedBackupKDF)
+	}
+	if manifest.KDFParams != defaultBackupKDFParams() {
+		t.Fatalf("manifest.KDFParams = %#v, want %#v", manifest.KDFParams, defaultBackupKDFParams())
+	}
+	if strings.Contains(string(ciphertext), "Sensitive backup title") || strings.Contains(string(ciphertext), "secret-poc") {
+		t.Fatalf("ciphertext leaked plaintext: %q", ciphertext)
+	}
+}
+
+func TestCreateEncryptedBackupFailsWhenReferencedAttachmentIsMissing(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	report, err := app.SaveReport(ReportDraft{
+		Title: "Missing file backup",
+		PocFiles: []PocFile{
+			{Name: "poc.txt", Type: "text/plain", Data: "data:text/plain;base64,YWJj"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentPath, err := app.attachmentAbsolutePath(report.PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(attachmentPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := app.CreateEncryptedBackup("backup password"); err == nil {
+		t.Fatal("CreateEncryptedBackup succeeded with a missing referenced attachment")
+	}
+}
+
+func TestCreateEncryptedBackupRejectsSymlinkedAttachmentPath(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "poc.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(filepath.Dir(app.StorePath()), "attachments", "attachment_link")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(app.StorePath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reports := []Report{{
+		ID:       "report_1",
+		Title:    "Symlink report",
+		PocFiles: []PocFile{{ID: "attachment_link", Name: "poc.txt", Path: "attachments/attachment_link/poc.txt"}},
+	}}
+	content, err := json.Marshal(reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(app.StorePath(), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := app.CreateEncryptedBackup("backup password"); err == nil {
+		t.Fatal("CreateEncryptedBackup followed a symlinked attachment path")
+	}
+}
+
+func TestRestoreEncryptedBackupRejectsTamperedCiphertextWithoutChangingExistingData(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{
+		Title: "New backup data",
+		PocFiles: []PocFile{
+			{Name: "new.txt", Type: "text/plain", Data: "data:text/plain;base64,bmV3"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := source.CreateEncryptedBackup("backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target := NewApp()
+	target.storePath = filepath.Join(t.TempDir(), "reports.json")
+	existing, err := target.SaveReport(ReportDraft{
+		Title: "Existing local data",
+		PocFiles: []PocFile{
+			{Name: "existing.txt", Type: "text/plain", Data: "data:text/plain;base64,b2xk"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingPath, err := target.attachmentAbsolutePath(existing.PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tamperedArchive := tamperBackupCiphertextForTest(t, backup.Data)
+	if _, err := target.RestoreEncryptedBackup(tamperedArchive, "backup password"); err == nil {
+		t.Fatal("RestoreEncryptedBackup accepted tampered ciphertext")
+	}
+
+	reports, err := target.ListReports()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || reports[0].Title != "Existing local data" {
+		t.Fatalf("reports after failed restore = %#v, want existing local data preserved", reports)
+	}
+	content, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "old" {
+		t.Fatalf("existing attachment after failed restore = %q, want old", content)
+	}
+}
+
+func TestRestoreEncryptedBackupRejectsUnsupportedKDFParams(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{Title: "KDF test"}); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := source.CreateEncryptedBackup("backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archive := decodeBackupDataForTest(t, backup.Data)
+	manifest, ciphertext, err := readEncryptedBackupZip(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.KDFParams.Memory = manifest.KDFParams.Memory * 2
+	rebuilt, err := buildEncryptedBackupZip(manifest, ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target := NewApp()
+	target.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := target.RestoreEncryptedBackup(base64.StdEncoding.EncodeToString(rebuilt), "backup password"); err == nil {
+		t.Fatal("RestoreEncryptedBackup accepted unsupported KDF params")
+	}
+}
+
+func TestRestoreEncryptedBackupRejectsTamperedManifestWithoutChangingExistingData(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{Title: "Manifest source"}); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := source.CreateEncryptedBackup("backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*encryptedBackupManifest)
+	}{
+		{
+			name: "format",
+			mutate: func(manifest *encryptedBackupManifest) {
+				manifest.Format = "vulndock.encrypted-backup.v999"
+			},
+		},
+		{
+			name: "algorithm",
+			mutate: func(manifest *encryptedBackupManifest) {
+				manifest.Algorithm = "AES-CBC"
+			},
+		},
+		{
+			name: "kdf",
+			mutate: func(manifest *encryptedBackupManifest) {
+				manifest.KDF = "pbkdf2"
+			},
+		},
+		{
+			name: "salt",
+			mutate: func(manifest *encryptedBackupManifest) {
+				salt, err := base64.StdEncoding.DecodeString(manifest.Salt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				salt[0] ^= 0xff
+				manifest.Salt = base64.StdEncoding.EncodeToString(salt)
+			},
+		},
+		{
+			name: "nonce",
+			mutate: func(manifest *encryptedBackupManifest) {
+				nonce, err := base64.StdEncoding.DecodeString(manifest.Nonce)
+				if err != nil {
+					t.Fatal(err)
+				}
+				nonce[0] ^= 0xff
+				manifest.Nonce = base64.StdEncoding.EncodeToString(nonce)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, existingPath := appWithExistingRestoreDataForTest(t)
+			mutatedBackup := mutateBackupManifestForTest(t, backup.Data, tt.mutate)
+
+			if _, err := target.RestoreEncryptedBackup(mutatedBackup, "backup password"); err == nil {
+				t.Fatal("RestoreEncryptedBackup accepted a tampered manifest")
+			}
+			assertExistingRestoreDataPreservedForTest(t, target, existingPath)
+		})
+	}
+}
+
+func TestRestoreEncryptedBackupRejectsMissingZipEntriesWithoutChangingExistingData(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{Title: "ZIP source"}); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := source.CreateEncryptedBackup("backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archive := decodeBackupDataForTest(t, backup.Data)
+	manifest, ciphertext, err := readEncryptedBackupZip(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		archive []byte
+	}{
+		{
+			name:    "missing manifest",
+			archive: buildBackupZipForTest(t, nil, ciphertext),
+		},
+		{
+			name:    "missing payload",
+			archive: buildBackupZipForTest(t, &manifest, nil),
+		},
+		{
+			name:    "not a zip",
+			archive: []byte("not-a-zip"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, existingPath := appWithExistingRestoreDataForTest(t)
+			encoded := base64.StdEncoding.EncodeToString(tt.archive)
+
+			if _, err := target.RestoreEncryptedBackup(encoded, "backup password"); err == nil {
+				t.Fatal("RestoreEncryptedBackup accepted an invalid zip archive")
+			}
+			assertExistingRestoreDataPreservedForTest(t, target, existingPath)
+		})
+	}
+}
+
+func TestRestoreEncryptedBackupRejectsEncryptedUnsafePayloadWithoutChangingExistingData(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload encryptedBackupPayload
+	}{
+		{
+			name: "report points outside attachments",
+			payload: encryptedBackupPayload{
+				Format: encryptedBackupFormat,
+				Reports: []Report{{
+					Title:    "Malicious payload",
+					PocFiles: []PocFile{{Name: "poc.txt", Path: "attachments/../reports.json"}},
+				}},
+				Attachments: []backupAttachment{{Path: "attachments/attachment_1/poc.txt", Data: base64.StdEncoding.EncodeToString([]byte("x"))}},
+			},
+		},
+		{
+			name: "attachment content path escapes",
+			payload: encryptedBackupPayload{
+				Format: encryptedBackupFormat,
+				Reports: []Report{{
+					Title:    "Malicious payload",
+					PocFiles: []PocFile{{Name: "poc.txt", Path: "attachments/attachment_1/poc.txt"}},
+				}},
+				Attachments: []backupAttachment{{Path: "attachments/attachment_1/../../reports.json", Data: base64.StdEncoding.EncodeToString([]byte("x"))}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, existingPath := appWithExistingRestoreDataForTest(t)
+			backup := encryptedBackupFromPayloadForTest(t, tt.payload, "backup password")
+
+			if _, err := target.RestoreEncryptedBackup(backup, "backup password"); err == nil {
+				t.Fatal("RestoreEncryptedBackup accepted an encrypted unsafe payload")
+			}
+			assertExistingRestoreDataPreservedForTest(t, target, existingPath)
+			if _, err := os.Stat(filepath.Join(filepath.Dir(target.StorePath()), "reports.json")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRestoreEncryptedBackupReplacesExistingDataAndRemovesOldAttachments(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{
+		Title: "Restored report",
+		PocFiles: []PocFile{
+			{Name: "restored.txt", Type: "text/plain", Data: "data:text/plain;base64,bmV3"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := source.CreateEncryptedBackup("backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, oldAttachmentPath := appWithExistingRestoreDataForTest(t)
+	restored, err := target.RestoreEncryptedBackup(backup.Data, "backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(restored) != 1 || restored[0].Title != "Restored report" {
+		t.Fatalf("restored reports = %#v, want only restored report", restored)
+	}
+	if _, err := os.Stat(oldAttachmentPath); !os.IsNotExist(err) {
+		t.Fatalf("old attachment still exists or stat failed unexpectedly: %v", err)
+	}
+
+	restoredPath, err := target.attachmentAbsolutePath(restored[0].PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(restoredPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new" {
+		t.Fatalf("restored attachment = %q, want new", content)
+	}
+}
+
+func TestRestoreBackupPayloadCleansTemporaryDirectoryOnFailure(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+
+	err := app.restoreBackupPayload(nil, map[string][]byte{
+		"attachments/../reports.json": []byte("secret"),
+	})
+	if err == nil {
+		t.Fatal("restoreBackupPayload accepted an unsafe staged attachment path")
+	}
+	assertNoRestoreStageDirsForTest(t, filepath.Dir(app.StorePath()))
+}
+
+func TestRestoreEncryptedBackupRejectsMalformedArchiveInputs(t *testing.T) {
+	app, existingPath := appWithExistingRestoreDataForTest(t)
+	withMaxEncryptedBackupBytesForTest(t, 32)
+
+	largeArchive := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("x"), maxEncryptedBackupBytes+1))
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "broken base64", data: "not-base64"},
+		{name: "broken data URL base64", data: "data:application/zip;base64,%%%"},
+		{name: "missing data URL payload", data: "data:application/zip;base64"},
+		{name: "archive too large", data: largeArchive},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := app.RestoreEncryptedBackup(tt.data, "backup password"); err == nil {
+				t.Fatal("RestoreEncryptedBackup accepted malformed archive input")
+			}
+			assertExistingRestoreDataPreservedForTest(t, app, existingPath)
+		})
+	}
+}
+
+func TestReadEncryptedBackupZipRejectsOversizedEntries(t *testing.T) {
+	withMaxEncryptedBackupBytesForTest(t, 32)
+
+	manifest := encryptedBackupManifest{
+		Format:    encryptedBackupFormat,
+		Algorithm: encryptedBackupAlgorithm,
+		KDF:       encryptedBackupKDF,
+		KDFParams: defaultBackupKDFParams(),
+		Salt:      base64.StdEncoding.EncodeToString([]byte("1234567890123456")),
+		Nonce:     base64.StdEncoding.EncodeToString([]byte("123456789012")),
+	}
+	archive := buildBackupZipForTest(t, &manifest, bytes.Repeat([]byte("x"), maxEncryptedBackupBytes+1))
+
+	if _, _, err := readEncryptedBackupZip(archive); err == nil {
+		t.Fatal("readEncryptedBackupZip accepted an oversized payload entry")
+	}
+}
+
+func TestEncryptedBackupPasswordBoundaries(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := app.SaveReport(ReportDraft{Title: "Password boundary"}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, password := range []string{" ", "\t\n"} {
+		if _, err := app.CreateEncryptedBackup(password); err == nil {
+			t.Fatalf("CreateEncryptedBackup accepted whitespace-only password %q", password)
+		}
+	}
+
+	for _, password := range []string{"正しい パスワード 🔐", strings.Repeat("long-password-", 128)} {
+		backup, err := app.CreateEncryptedBackup(password)
+		if err != nil {
+			t.Fatalf("CreateEncryptedBackup(%q) failed: %v", password, err)
+		}
+		restored, err := app.RestoreEncryptedBackup(backup.Data, password)
+		if err != nil {
+			t.Fatalf("RestoreEncryptedBackup(%q) failed: %v", password, err)
+		}
+		if len(restored) != 1 || restored[0].Title != "Password boundary" {
+			t.Fatalf("restored reports = %#v, want password boundary report", restored)
+		}
+	}
+}
+
+func TestEncryptedBackupIsNonDeterministicForSameDataAndPassword(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := app.SaveReport(ReportDraft{
+		Title: "Same plaintext",
+		PocFiles: []PocFile{
+			{Name: "same.txt", Type: "text/plain", Data: "data:text/plain;base64,c2FtZQ=="},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := app.CreateEncryptedBackup("same password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := app.CreateEncryptedBackup("same password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Data == second.Data {
+		t.Fatal("encrypted backups for same data and password were identical")
+	}
+
+	firstManifest, firstCiphertext, err := readEncryptedBackupZip(decodeBackupDataForTest(t, first.Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondManifest, secondCiphertext, err := readEncryptedBackupZip(decodeBackupDataForTest(t, second.Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstManifest.Salt == secondManifest.Salt {
+		t.Fatal("encrypted backups reused salt")
+	}
+	if firstManifest.Nonce == secondManifest.Nonce {
+		t.Fatal("encrypted backups reused nonce")
+	}
+	if bytes.Equal(firstCiphertext, secondCiphertext) {
+		t.Fatal("encrypted backups produced identical ciphertext")
+	}
+}
+
+func TestRestoreEncryptedBackupHandlesDuplicateReferencesAndRemovesOrphanPayloadAttachments(t *testing.T) {
+	payload := encryptedBackupPayload{
+		Format: encryptedBackupFormat,
+		Reports: []Report{
+			{
+				ID:       "one",
+				Title:    "Shared attachment one",
+				PocFiles: []PocFile{{ID: "attachment_shared", Name: "shared.txt", Type: "text/plain", Size: 6, Path: "attachments/attachment_shared/shared.txt"}},
+			},
+			{
+				ID:       "two",
+				Title:    "Shared attachment two",
+				PocFiles: []PocFile{{ID: "attachment_shared", Name: "shared.txt", Type: "text/plain", Size: 6, Path: "attachments/attachment_shared/shared.txt"}},
+			},
+		},
+		Attachments: []backupAttachment{
+			{Path: "attachments/attachment_shared/shared.txt", Data: base64.StdEncoding.EncodeToString([]byte("shared"))},
+			{Path: "attachments/attachment_orphan/orphan.txt", Data: base64.StdEncoding.EncodeToString([]byte("orphan"))},
+		},
+	}
+
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	backup := encryptedBackupFromPayloadForTest(t, payload, "backup password")
+	restored, err := app.RestoreEncryptedBackup(backup, "backup password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 2 {
+		t.Fatalf("len(restored) = %d, want 2", len(restored))
+	}
+	for _, report := range restored {
+		if len(report.PocFiles) != 1 || report.PocFiles[0].Path != "attachments/attachment_shared/shared.txt" {
+			t.Fatalf("restored report has unexpected PoC files: %#v", report)
+		}
+	}
+
+	sharedPath, err := app.attachmentAbsolutePath(restored[0].PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(sharedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "shared" {
+		t.Fatalf("shared attachment = %q, want shared", content)
+	}
+
+	orphanPath := filepath.Join(filepath.Dir(app.StorePath()), "attachments", "attachment_orphan", "orphan.txt")
+	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
+		t.Fatalf("orphan payload attachment still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestRestoredDataCanBeReBackedUpAndRestoredAgain(t *testing.T) {
+	source := NewApp()
+	source.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := source.SaveReport(ReportDraft{
+		Title: "Portable report",
+		PocFiles: []PocFile{
+			{Name: "portable.txt", Type: "text/plain", Data: "data:text/plain;base64,cG9ydGFibGU="},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	firstBackup, err := source.CreateEncryptedBackup("first password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	intermediate := NewApp()
+	intermediate.storePath = filepath.Join(t.TempDir(), "reports.json")
+	if _, err := intermediate.RestoreEncryptedBackup(firstBackup.Data, "first password"); err != nil {
+		t.Fatal(err)
+	}
+	secondBackup, err := intermediate.CreateEncryptedBackup("second password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	final := NewApp()
+	final.storePath = filepath.Join(t.TempDir(), "reports.json")
+	restored, err := final.RestoreEncryptedBackup(secondBackup.Data, "second password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 1 || restored[0].Title != "Portable report" {
+		t.Fatalf("final restored reports = %#v, want portable report", restored)
+	}
+	path, err := final.attachmentAbsolutePath(restored[0].PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "portable" {
+		t.Fatalf("final restored attachment = %q, want portable", content)
+	}
+}
+
+func TestNormalizeBackupPayloadRejectsUnsafeOrMissingAttachments(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload encryptedBackupPayload
+	}{
+		{
+			name: "attachment path outside attachments",
+			payload: encryptedBackupPayload{
+				Format: encryptedBackupFormat,
+				Reports: []Report{{
+					Title:    "Unsafe path",
+					PocFiles: []PocFile{{Name: "poc.txt", Path: "attachments/../reports.json"}},
+				}},
+				Attachments: []backupAttachment{{Path: "attachments/../reports.json", Data: base64.StdEncoding.EncodeToString([]byte("x"))}},
+			},
+		},
+		{
+			name: "attachment content missing",
+			payload: encryptedBackupPayload{
+				Format: encryptedBackupFormat,
+				Reports: []Report{{
+					Title:    "Missing attachment",
+					PocFiles: []PocFile{{Name: "poc.txt", Path: "attachments/attachment_1/poc.txt"}},
+				}},
+			},
+		},
+		{
+			name: "attachment path not under attachments",
+			payload: encryptedBackupPayload{
+				Format: encryptedBackupFormat,
+				Reports: []Report{{
+					Title:    "Wrong root",
+					PocFiles: []PocFile{{Name: "poc.txt", Path: "reports.json"}},
+				}},
+				Attachments: []backupAttachment{{Path: "reports.json", Data: base64.StdEncoding.EncodeToString([]byte("x"))}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := normalizeBackupPayload(tt.payload); err == nil {
+				t.Fatal("normalizeBackupPayload accepted invalid backup payload")
+			}
+		})
+	}
+}
+
+func TestEncryptedBackupRequiresPassword(t *testing.T) {
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+
+	if _, err := app.CreateEncryptedBackup(""); err == nil {
+		t.Fatal("CreateEncryptedBackup accepted an empty password")
+	}
+	if _, err := app.RestoreEncryptedBackup("not-base64", ""); err == nil {
+		t.Fatal("RestoreEncryptedBackup accepted an empty password")
+	}
+}
+
+func decodeBackupDataForTest(t *testing.T, data string) []byte {
+	t.Helper()
+
+	archive, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return archive
+}
+
+func tamperBackupCiphertextForTest(t *testing.T, backupData string) string {
+	t.Helper()
+
+	archive := decodeBackupDataForTest(t, backupData)
+	manifest, ciphertext, err := readEncryptedBackupZip(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ciphertext) == 0 {
+		t.Fatal("ciphertext is empty")
+	}
+	ciphertext[len(ciphertext)-1] ^= 0xff
+	rebuilt, err := buildEncryptedBackupZip(manifest, ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(rebuilt)
+}
+
+func mutateBackupManifestForTest(t *testing.T, backupData string, mutate func(*encryptedBackupManifest)) string {
+	t.Helper()
+
+	archive := decodeBackupDataForTest(t, backupData)
+	manifest, ciphertext, err := readEncryptedBackupZip(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(&manifest)
+	rebuilt, err := buildEncryptedBackupZip(manifest, ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(rebuilt)
+}
+
+func encryptedBackupFromPayloadForTest(t *testing.T, payload encryptedBackupPayload, password string) string {
+	t.Helper()
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, ciphertext, err := encryptBackupPayload(payloadJSON, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := buildEncryptedBackupZip(manifest, ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(archive)
+}
+
+func buildBackupZipForTest(t *testing.T, manifest *encryptedBackupManifest, ciphertext []byte) []byte {
+	t.Helper()
+
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	if manifest != nil {
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeZipFile(archive, encryptedBackupManifestName, manifestJSON); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ciphertext != nil {
+		if err := writeZipFile(archive, encryptedBackupPayloadName, ciphertext); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func withMaxEncryptedBackupBytesForTest(t *testing.T, value int) {
+	t.Helper()
+
+	original := maxEncryptedBackupBytes
+	maxEncryptedBackupBytes = value
+	t.Cleanup(func() {
+		maxEncryptedBackupBytes = original
+	})
+}
+
+func appWithExistingRestoreDataForTest(t *testing.T) (*App, string) {
+	t.Helper()
+
+	app := NewApp()
+	app.storePath = filepath.Join(t.TempDir(), "reports.json")
+	existing, err := app.SaveReport(ReportDraft{
+		Title: "Existing local data",
+		PocFiles: []PocFile{
+			{Name: "existing.txt", Type: "text/plain", Data: "data:text/plain;base64,b2xk"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingPath, err := app.attachmentAbsolutePath(existing.PocFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app, existingPath
+}
+
+func assertNoRestoreStageDirsForTest(t *testing.T, baseDir string) {
+	t.Helper()
+
+	entries, err := os.ReadDir(baseDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".vulndock-restore-") {
+			t.Fatalf("restore staging directory was left behind: %s", filepath.Join(baseDir, entry.Name()))
+		}
+	}
+}
+
+func assertExistingRestoreDataPreservedForTest(t *testing.T, app *App, existingPath string) {
+	t.Helper()
+
+	reports, err := app.ListReports()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || reports[0].Title != "Existing local data" {
+		t.Fatalf("reports after failed restore = %#v, want existing local data preserved", reports)
+	}
+	content, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "old" {
+		t.Fatalf("existing attachment after failed restore = %q, want old", content)
 	}
 }
 

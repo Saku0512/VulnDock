@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { BrowserOpenURL } from '../wailsjs/runtime/runtime'
-  import { DeleteReport, ListReports, OpenPocFile, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
+  import { CreateEncryptedBackup, DeleteReport, ListReports, OpenPocFile, RestoreEncryptedBackup, SaveReport, StorePath } from '../wailsjs/go/main/App.js'
   import { main } from '../wailsjs/go/models'
+  import { selectedBackupFile, validateBackupPasswordPair, validateRestorePassword } from './backup'
   import { calculateCvss, inferCvssVersion } from './cvss'
   import logoUrl from './assets/images/logo.png'
 
@@ -56,6 +57,13 @@
   type NextActionState = 'none' | 'done' | 'overdue' | 'today' | 'upcoming' | 'later'
   type RewardStatus = 'Unknown' | 'Pending' | 'Paid' | 'None'
   type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
+  type BackupDialog = {
+    mode: 'export' | 'restore'
+    file: File | null
+    password: string
+    confirmPassword: string
+    errorMessage: string
+  }
 
   const participants: Participant[] = ['自分', 'メンテナー']
   const cvssVersions: CvssVersion[] = ['3.1', '4.0']
@@ -108,8 +116,11 @@
   let storePath = $state('')
   let loading = $state(true)
   let saving = $state(false)
+  let backupBusy = $state(false)
   let errorMessage = $state('')
   let pocInput = $state<HTMLInputElement>()
+  let backupInput = $state<HTMLInputElement>()
+  let backupDialog = $state<BackupDialog | null>(null)
   let hideConversationUntilReopen = $state(false)
 
   let filteredReports = $derived(reports.filter(matchesFilters))
@@ -288,6 +299,87 @@
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  function createEncryptedBackup() {
+    backupDialog = {
+      mode: 'export',
+      file: null,
+      password: '',
+      confirmPassword: '',
+      errorMessage: ''
+    }
+  }
+
+  async function submitBackupDialog() {
+    if (!backupDialog || backupBusy) {
+      return
+    }
+
+    const passwordResult = backupDialog.mode === 'export'
+      ? validateBackupPasswordPair(backupDialog.password, backupDialog.confirmPassword)
+      : validateRestorePassword(backupDialog.password)
+    if (!passwordResult.ok) {
+      backupDialog = { ...backupDialog, errorMessage: passwordResult.errorMessage }
+      return
+    }
+
+    if (backupDialog.mode === 'restore' && !backupDialog.file) {
+      backupDialog = { ...backupDialog, errorMessage: '復元するZIPファイルを選択してください。' }
+      return
+    }
+
+    const dialog = backupDialog
+    backupBusy = true
+    errorMessage = ''
+    try {
+      if (dialog.mode === 'export') {
+        const backup = await CreateEncryptedBackup(passwordResult.password)
+        downloadBase64File(backup.data, backup.fileName, 'application/zip')
+      } else {
+        const archiveData = await readFileAsDataURL(dialog.file as File)
+        reports = (await RestoreEncryptedBackup(archiveData, passwordResult.password)).map(normalizeReport)
+        if (reports.length > 0) {
+          selectReport(reports[0], { force: true, skipUnsavedCheck: true })
+        } else {
+          createReport({ skipUnsavedCheck: true })
+        }
+      }
+      closeBackupDialog()
+    } catch (error) {
+      backupDialog = { ...dialog, errorMessage: error instanceof Error ? error.message : String(error) }
+    } finally {
+      backupBusy = false
+    }
+  }
+
+  function closeBackupDialog() {
+    backupDialog = null
+    if (backupInput) {
+      backupInput.value = ''
+    }
+  }
+
+  function chooseBackupForRestore() {
+    if (!confirmDiscardUnsavedChanges('復元')) {
+      return
+    }
+    backupInput?.click()
+  }
+
+  async function restoreEncryptedBackup(files: FileList | null) {
+    const file = selectedBackupFile(files)
+    if (!file) {
+      return
+    }
+
+    backupDialog = {
+      mode: 'restore',
+      file,
+      password: '',
+      confirmPassword: '',
+      errorMessage: ''
     }
   }
 
@@ -753,19 +845,35 @@
   }
 
   function readPocFile(file: File): Promise<PocFile> {
+    return readFileAsDataURL(file).then((data) => ({
+      id: '',
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      path: '',
+      data
+    }))
+  }
+
+  function readFileAsDataURL(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
-      reader.onload = () => resolve({
-        id: '',
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        path: '',
-        data: String(reader.result ?? '')
-      })
+      reader.onload = () => resolve(String(reader.result ?? ''))
       reader.onerror = () => reject(reader.error)
       reader.readAsDataURL(file)
     })
+  }
+
+  function downloadBase64File(data: string, fileName: string, type: string) {
+    const bytes = Uint8Array.from(atob(data), (value) => value.charCodeAt(0))
+    const url = URL.createObjectURL(new Blob([bytes], { type }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
   }
 
   function removePocFile(index: number) {
@@ -1070,6 +1178,17 @@
         <span class:dirty={hasUnsavedChanges} class="save-status">
           {saving ? '保存中...' : hasUnsavedChanges ? '未保存の変更' : '保存済み'}
         </span>
+        <button class="ghost-button" type="button" onclick={createEncryptedBackup} disabled={backupBusy}>
+          {backupBusy ? '処理中...' : '暗号化ZIP'}
+        </button>
+        <button class="ghost-button" type="button" onclick={chooseBackupForRestore} disabled={backupBusy}>復元</button>
+        <input
+          bind:this={backupInput}
+          class="hidden-file-input"
+          type="file"
+          accept=".zip,application/zip"
+          onchange={(event) => restoreEncryptedBackup(event.currentTarget.files)}
+        />
         <button class="ghost-button" type="button" onclick={deleteCurrentReport} disabled={!selectedId}>削除</button>
         <button class="primary-button" type="button" onclick={saveCurrentReport} disabled={saving}>
           {saving ? '保存中...' : '保存'}
@@ -1266,4 +1385,48 @@
       </section>
     </div>
   </section>
+
+  {#if backupDialog}
+    <div class="modal-backdrop" role="presentation">
+      <div class="password-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-dialog-title">
+        <div class="poc-header">
+          <div>
+            <p class="eyebrow">{backupDialog.mode === 'export' ? '暗号化ZIP' : '復元'}</p>
+            <h2 id="backup-dialog-title">{backupDialog.mode === 'export' ? 'バックアップパスワード' : '復元パスワード'}</h2>
+          </div>
+        </div>
+
+        {#if backupDialog.mode === 'restore' && backupDialog.file}
+          <p class="dialog-file-name">{backupDialog.file.name}</p>
+        {/if}
+
+        <label>
+          パスワード
+          <input
+            autocomplete={backupDialog.mode === 'export' ? 'new-password' : 'current-password'}
+            bind:value={backupDialog.password}
+            type="password"
+          />
+        </label>
+
+        {#if backupDialog.mode === 'export'}
+          <label>
+            パスワード確認
+            <input autocomplete="new-password" bind:value={backupDialog.confirmPassword} type="password" />
+          </label>
+        {/if}
+
+        {#if backupDialog.errorMessage}
+          <p class="dialog-error">{backupDialog.errorMessage}</p>
+        {/if}
+
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" onclick={closeBackupDialog} disabled={backupBusy}>キャンセル</button>
+          <button class="primary-button" type="button" onclick={submitBackupDialog} disabled={backupBusy}>
+            {backupBusy ? '処理中...' : backupDialog.mode === 'export' ? 'ダウンロード' : '復元'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>

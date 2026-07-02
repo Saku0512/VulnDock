@@ -9,6 +9,7 @@
     "outDir": ".test-dist"
   },
   "include": [
+    "src/backup.ts",
     "src/cvss.ts"
   ]
 }

@@ -43,12 +43,14 @@ The application accepts these external inputs:
 - Text entered into report fields.
 - CVSS vectors entered by the user.
 - Local files selected as PoC attachments.
+- Encrypted backup ZIP files selected for restore.
 - Existing local report data loaded from the VulnDock data file.
 
 The application produces these outputs and side effects:
 
 - A local JSON report store.
 - PoC attachment files stored separately under the local attachments directory.
+- Password-protected encrypted ZIP backup downloads.
 - Desktop app windows and UI state.
 - Release artifacts produced by the GitHub Actions release workflow.
 
@@ -69,6 +71,12 @@ PoC attachment metadata is stored in that JSON file. Attachment contents are sto
 ```
 
 Older data URL attachments are migrated into the attachments directory when reports are loaded. Treat both the JSON file and attachments directory as sensitive. Do not store production credentials, private customer data, private keys, tokens, or exploit material that you are not allowed to keep locally.
+
+## Encrypted Backups
+
+The encrypted ZIP action creates a ZIP container with an AES-256-GCM encrypted payload. The payload includes report data and attachment contents. The password is used with Argon2id to derive the encryption key.
+
+Restoring an encrypted ZIP replaces the current local reports and attachments only after the password decrypts and authenticates the payload successfully.
 
 ## CVSS Handling
 

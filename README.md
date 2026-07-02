@@ -16,6 +16,7 @@ VulnDock is a desktop app for organizing vulnerability report metadata, PoC atta
 - Calculate CVSS 3.1 and CVSS 4.0 scores automatically from vector strings.
 - Filter reports by status and CVSS rating.
 - Persist data locally as JSON.
+- Download and restore password-protected encrypted ZIP backups.
 
 ## Data Storage
 
@@ -32,6 +33,8 @@ PoC attachment metadata is stored in `reports.json`. Attachment file contents ar
 ```
 
 Existing data URL attachments are migrated into the attachments directory the next time reports are loaded. Avoid attaching secrets, production credentials, customer data, or any material you should not keep in local application data.
+
+Encrypted backup ZIP files contain an AES-256-GCM encrypted payload with report data and attachment contents. Backup keys are derived from the user-provided password with Argon2id, and restore fails if password verification or payload authentication fails.
 
 ## Requirements
 

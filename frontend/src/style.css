@@ -644,6 +644,60 @@ label.full-width {
   font-size: 0.74rem;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(21 29 39 / 42%);
+  padding: 18px;
+  z-index: 20;
+}
+
+.password-dialog {
+  display: grid;
+  width: min(440px, 100%);
+  gap: 14px;
+  border: 1px solid #d3dce7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 60px rgb(28 39 54 / 22%);
+  padding: 18px;
+}
+
+.password-dialog h2 {
+  margin: 3px 0 0;
+  color: #1d2a3a;
+  font-size: 1.05rem;
+}
+
+.dialog-file-name {
+  overflow: hidden;
+  margin: 0;
+  color: #536175;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-error {
+  margin: 0;
+  border: 1px solid #f0b8b8;
+  border-radius: 7px;
+  background: #fff5f5;
+  color: #9a2d2d;
+  padding: 9px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @media (max-width: 1100px) {
   .workspace {
     grid-template-columns: minmax(250px, 310px) minmax(430px, 1fr);
