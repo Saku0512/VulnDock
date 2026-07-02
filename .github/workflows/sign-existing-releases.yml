@@ -1,0 +1,62 @@
+name: Sign Existing Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tags:
+        description: Space-separated release tags to sign
+        required: true
+        default: "v0.1.2 v0.1.1 v0.1.0"
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    name: Sign release assets
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download, sign, and upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAGS: ${{ inputs.release_tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for tag in ${RELEASE_TAGS}; do
+            echo "Signing release assets for ${tag}"
+
+            release_dir="release-assets/${tag}"
+            mkdir -p "${release_dir}"
+
+            gh release download "${tag}" --dir "${release_dir}" --clobber
+
+            (
+              cd "${release_dir}"
+              find . -maxdepth 1 -type f \
+                ! -name "*.sigstore.json" \
+                ! -name "*.intoto.jsonl" \
+                ! -name "*.sig" \
+                ! -name "*.asc" \
+                -print0 | sort -z | xargs -0 sha256sum -- > VulnDock_SHA256SUMS.txt
+            )
+
+            find "${release_dir}" -maxdepth 1 -type f \
+              ! -name "*.sigstore.json" \
+              ! -name "*.intoto.jsonl" \
+              ! -name "*.sig" \
+              ! -name "*.asc" \
+              -print0 | while IFS= read -r -d '' asset; do
+                cosign sign-blob --yes --bundle "${asset}.sigstore.json" "${asset}"
+              done
+
+            gh release upload "${tag}" "${release_dir}"/*.sigstore.json "${release_dir}/VulnDock_SHA256SUMS.txt" --clobber
+          done
