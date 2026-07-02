@@ -1,5 +1,7 @@
 # VulnDock
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Saku0512/VulnDock)
+
 VulnDock is a desktop app for organizing vulnerability report metadata, PoC attachments, and CVSS vectors in one local workspace. It is built with Wails, Go, Svelte, and TypeScript.
 
 ## Features
