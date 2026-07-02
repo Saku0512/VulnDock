@@ -29,7 +29,7 @@ PoC attachments are embedded in that JSON file as data URLs. Avoid attaching sec
 
 ## Requirements
 
-- Go 1.24+
+- Go 1.26.4+
 - Node.js 22+
 - npm
 - Wails v2
