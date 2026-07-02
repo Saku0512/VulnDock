@@ -10,6 +10,9 @@ Please do not open a public issue for a suspected security vulnerability.
 
 Use GitHub's private vulnerability reporting or Security Advisory flow when available. If that is not available, contact the maintainer through a private channel before sharing details publicly.
 
+Report privately via:
+https://github.com/Saku0512/VulnDock/security/advisories/new
+
 When reporting, include:
 
 - A clear description of the issue.
