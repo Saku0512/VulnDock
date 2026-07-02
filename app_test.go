@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -190,4 +191,103 @@ func TestNormalizeCVSSScore(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzNormalizeDraft(f *testing.F) {
+	f.Add(
+		"  Stored XSS  ",
+		"4.0",
+		"7.94",
+		"submitted",
+		"paid",
+		"#xss",
+		" XSS ",
+		" poc.py ",
+		" data:text/plain;base64,abc ",
+		"maintainer",
+		"maintainer",
+		"  fix planned  ",
+		int64(-1),
+	)
+	f.Add("", "", "high", "", "", "", "api", "", "data", "", "", "", int64(128))
+
+	f.Fuzz(func(
+		t *testing.T,
+		title string,
+		cvssVersion string,
+		cvssScore string,
+		status string,
+		rewardStatus string,
+		tagA string,
+		tagB string,
+		pocName string,
+		pocData string,
+		from string,
+		to string,
+		body string,
+		pocSize int64,
+	) {
+		if len(title)+len(cvssVersion)+len(cvssScore)+len(status)+len(rewardStatus)+len(tagA)+len(tagB)+len(pocName)+len(pocData)+len(from)+len(to)+len(body) > 8192 {
+			t.Skip()
+		}
+
+		report := normalizeDraft(ReportDraft{
+			Title:         title,
+			CVSSVersion:   cvssVersion,
+			CVSSScore:     cvssScore,
+			Status:        status,
+			RewardStatus:  rewardStatus,
+			MaintainerLog: "  ",
+			ConversationLogs: []ConversationEntry{
+				{From: from, To: to, Body: body},
+			},
+			Tags: []string{tagA, tagB},
+			PocFiles: []PocFile{
+				{Name: pocName, Size: pocSize, Data: pocData},
+			},
+		})
+
+		if report.Title == "" {
+			t.Fatal("normalized title must not be empty")
+		}
+		if strings.TrimSpace(title) == "" && report.Title != "Untitled report" {
+			t.Fatalf("blank title normalized to %q, want Untitled report", report.Title)
+		}
+		if report.CVSSVersion != "3.1" && report.CVSSVersion != "4.0" {
+			t.Fatalf("unexpected CVSSVersion %q", report.CVSSVersion)
+		}
+		if report.CVSSScore != "" {
+			value, err := strconv.ParseFloat(report.CVSSScore, 64)
+			if err != nil {
+				t.Fatalf("normalized CVSSScore is not numeric: %q", report.CVSSScore)
+			}
+			if value < 0 || value > 10 {
+				t.Fatalf("normalized CVSSScore out of range: %q", report.CVSSScore)
+			}
+		}
+		if report.MaintainerLog != "" {
+			t.Fatalf("MaintainerLog = %q, want blank after migration", report.MaintainerLog)
+		}
+		for _, log := range report.ConversationLogs {
+			if strings.TrimSpace(log.Body) == "" {
+				t.Fatalf("blank conversation log was kept: %#v", log)
+			}
+			if log.From == log.To {
+				t.Fatalf("conversation participants match: %#v", log)
+			}
+		}
+		for _, tag := range report.Tags {
+			if tag == "" || strings.HasPrefix(tag, "#") || strings.HasSuffix(tag, "#") {
+				t.Fatalf("tag was not normalized: %q", tag)
+			}
+		}
+		for _, file := range report.PocFiles {
+			if file.Name == "" || file.Data == "" {
+				t.Fatalf("blank PoC file fields were kept: %#v", file)
+			}
+			if file.Size < 0 {
+				t.Fatalf("negative PoC file size was kept: %#v", file)
+			}
+		}
+	})
 }
