@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -76,10 +81,12 @@ type ConversationEntry struct {
 }
 
 type PocFile struct {
+	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Size int64  `json:"size"`
-	Data string `json:"data"`
+	Path string `json:"path,omitempty"`
+	Data string `json:"data,omitempty"`
 }
 
 type storedReport struct {
@@ -114,6 +121,9 @@ func (a *App) SaveReport(draft ReportDraft) (Report, error) {
 
 	now := time.Now().Format(time.RFC3339)
 	report := normalizeDraft(draft)
+	if _, err := a.persistPocFiles(&report); err != nil {
+		return Report{}, err
+	}
 	report.UpdatedAt = now
 
 	found := false
@@ -176,6 +186,22 @@ func (a *App) StorePath() string {
 	return a.storePath
 }
 
+func (a *App) OpenPocFile(file PocFile) (string, error) {
+	path, err := a.attachmentAbsolutePath(file)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", errors.New("attachment path points to a directory")
+	}
+
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String(), nil
+}
+
 func (a *App) loadReports() ([]Report, error) {
 	path := a.StorePath()
 	content, err := os.ReadFile(path)
@@ -196,14 +222,29 @@ func (a *App) loadReports() ([]Report, error) {
 	}
 
 	reports, hadReportContent := migrateReports(stored)
+	hadAttachmentMigration := false
+	for i := range reports {
+		migrated, err := a.persistPocFiles(&reports[i])
+		if err != nil {
+			return nil, err
+		}
+		if migrated {
+			hadAttachmentMigration = true
+		}
+	}
 	sortReports(reports)
-	if hadReportContent {
+	if hadReportContent || hadAttachmentMigration {
 		return reports, a.saveReports(reports)
 	}
 	return reports, nil
 }
 
 func (a *App) saveReports(reports []Report) error {
+	for i := range reports {
+		if _, err := a.persistPocFiles(&reports[i]); err != nil {
+			return err
+		}
+	}
 	sortReports(reports)
 
 	path := a.StorePath()
@@ -216,7 +257,184 @@ func (a *App) saveReports(reports []Report) error {
 		return err
 	}
 
-	return os.WriteFile(path, content, 0o600)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		return err
+	}
+	return a.cleanupOrphanAttachments(reports)
+}
+
+func (a *App) persistPocFiles(report *Report) (bool, error) {
+	changed := false
+	for i := range report.PocFiles {
+		file := &report.PocFiles[i]
+		if strings.TrimSpace(file.Data) == "" {
+			continue
+		}
+
+		stored, err := a.writeAttachment(*file)
+		if err != nil {
+			return false, err
+		}
+		*file = stored
+		changed = true
+	}
+	return changed, nil
+}
+
+func (a *App) writeAttachment(file PocFile) (PocFile, error) {
+	name := sanitizeAttachmentName(file.Name)
+	contentType, content, err := decodeDataURL(file.Data)
+	if err != nil {
+		return PocFile{}, fmt.Errorf("decode PoC attachment %q: %w", name, err)
+	}
+
+	id := normalizeAttachmentID(file.ID)
+	if id == "" {
+		id = newAttachmentID()
+	}
+	dir := filepath.Join(a.attachmentsDir(), id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return PocFile{}, err
+	}
+
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		return PocFile{}, err
+	}
+
+	file.ID = id
+	file.Name = name
+	if strings.TrimSpace(file.Type) == "" {
+		file.Type = contentType
+	}
+	file.Type = strings.TrimSpace(file.Type)
+	file.Size = int64(len(content))
+	file.Path = filepath.ToSlash(filepath.Join("attachments", id, name))
+	file.Data = ""
+	return file, nil
+}
+
+func decodeDataURL(data string) (string, []byte, error) {
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return "", nil, errors.New("attachment data is required")
+	}
+	if !strings.HasPrefix(strings.ToLower(data), "data:") {
+		return "", nil, errors.New("attachment data must be a data URL")
+	}
+
+	header, payload, ok := strings.Cut(data[5:], ",")
+	if !ok {
+		return "", nil, errors.New("data URL is missing payload")
+	}
+
+	parts := strings.Split(header, ";")
+	contentType := strings.TrimSpace(parts[0])
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	isBase64 := false
+	for _, part := range parts[1:] {
+		if strings.EqualFold(strings.TrimSpace(part), "base64") {
+			isBase64 = true
+			break
+		}
+	}
+	if !isBase64 {
+		return "", nil, errors.New("data URL payload must be base64 encoded")
+	}
+
+	content, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", nil, err
+	}
+	return contentType, content, nil
+}
+
+func (a *App) attachmentAbsolutePath(file PocFile) (string, error) {
+	relPath := strings.TrimSpace(file.Path)
+	if relPath == "" {
+		return "", errors.New("attachment path is required")
+	}
+	if filepath.IsAbs(relPath) {
+		return "", errors.New("attachment path must be relative")
+	}
+
+	base, err := filepath.Abs(filepath.Dir(a.StorePath()))
+	if err != nil {
+		return "", err
+	}
+	attachmentsBase, err := filepath.Abs(a.attachmentsDir())
+	if err != nil {
+		return "", err
+	}
+	candidate, err := filepath.Abs(filepath.Join(base, filepath.FromSlash(relPath)))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(attachmentsBase, candidate)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("attachment path escapes the attachments directory")
+	}
+	return candidate, nil
+}
+
+func (a *App) attachmentsDir() string {
+	return filepath.Join(filepath.Dir(a.StorePath()), "attachments")
+}
+
+func (a *App) cleanupOrphanAttachments(reports []Report) error {
+	dir := a.attachmentsDir()
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	keep := map[string]bool{}
+	for _, report := range reports {
+		for _, file := range report.PocFiles {
+			path, err := a.attachmentAbsolutePath(file)
+			if err == nil {
+				keep[path] = true
+			}
+		}
+	}
+
+	dirs := []string{}
+	if err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == dir {
+			return nil
+		}
+		if entry.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+		if !keep[path] {
+			return os.Remove(path)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+	for _, path := range dirs {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if entries, readErr := os.ReadDir(path); readErr != nil || len(entries) != 0 {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeDraft(draft ReportDraft) Report {
@@ -357,18 +575,22 @@ func oppositeParticipant(value string) string {
 func normalizePocFiles(files []PocFile) []PocFile {
 	next := []PocFile{}
 	for _, file := range files {
+		id := strings.TrimSpace(file.ID)
 		name := strings.TrimSpace(file.Name)
+		path := filepath.ToSlash(strings.TrimSpace(file.Path))
 		data := strings.TrimSpace(file.Data)
-		if name == "" || data == "" {
+		if name == "" || (data == "" && path == "" && id == "") {
 			continue
 		}
 		if file.Size < 0 {
 			file.Size = 0
 		}
 		next = append(next, PocFile{
+			ID:   id,
 			Name: name,
 			Type: strings.TrimSpace(file.Type),
 			Size: file.Size,
+			Path: path,
 			Data: data,
 		})
 	}
@@ -470,6 +692,57 @@ func newReportID() string {
 
 func newConversationEntryID(index int) string {
 	return "conversation_" + time.Now().UTC().Format("20060102150405.000000000") + "_" + strconv.Itoa(index)
+}
+
+func newAttachmentID() string {
+	var suffix [4]byte
+	if _, err := rand.Read(suffix[:]); err == nil {
+		return "attachment_" + time.Now().UTC().Format("20060102150405.000000000") + "_" + hex.EncodeToString(suffix[:])
+	}
+	return "attachment_" + time.Now().UTC().Format("20060102150405.000000000")
+}
+
+func normalizeAttachmentID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" || id == "." || id == ".." {
+		return ""
+	}
+	for _, value := range id {
+		switch {
+		case value >= 'a' && value <= 'z':
+		case value >= 'A' && value <= 'Z':
+		case value >= '0' && value <= '9':
+		case value == '_' || value == '-' || value == '.':
+		default:
+			return ""
+		}
+	}
+	return id
+}
+
+func sanitizeAttachmentName(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		return "attachment"
+	}
+
+	var builder strings.Builder
+	for _, value := range name {
+		switch {
+		case value < 32 || value == 127:
+			builder.WriteRune('_')
+		case value == '/' || value == '\\':
+			builder.WriteRune('_')
+		default:
+			builder.WriteRune(value)
+		}
+	}
+
+	name = strings.TrimSpace(builder.String())
+	if name == "" || name == "." || name == ".." {
+		return "attachment"
+	}
+	return name
 }
 
 func defaultStorePath() string {

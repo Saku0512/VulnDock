@@ -25,7 +25,13 @@ Reports are stored locally at:
 ~/.config/VulnDock/reports.json
 ```
 
-PoC attachments are embedded in that JSON file as data URLs. Avoid attaching secrets, production credentials, customer data, or any material you should not keep in a local application data file.
+PoC attachment metadata is stored in `reports.json`. Attachment file contents are stored separately under:
+
+```text
+~/.config/VulnDock/attachments/
+```
+
+Existing data URL attachments are migrated into the attachments directory the next time reports are loaded. Avoid attaching secrets, production credentials, customer data, or any material you should not keep in local application data.
 
 ## Requirements
 
