@@ -11,7 +11,7 @@
     "test": "tsc --project tsconfig.test.json && node --test test/*.test.mjs"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tsconfig/svelte": "^5.0.6",
     "svelte": "^5.56.3",
     "svelte-check": "^4.7.2",
