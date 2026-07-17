@@ -121,11 +121,9 @@
   let pocInput = $state<HTMLInputElement>()
   let backupInput = $state<HTMLInputElement>()
   let backupDialog = $state<BackupDialog | null>(null)
-  let hideConversationUntilReopen = $state(false)
 
   let filteredReports = $derived(reports.filter(matchesFilters))
   let selectedReport = $derived(reports.find((report) => report.id === selectedId))
-  let showConversationPanel = $derived(Boolean(selectedReport) && !hideConversationUntilReopen)
   let metrics = $derived(buildMetrics(reports))
   let hasUnsavedChanges = $derived(currentDraftSnapshot() !== savedDraftSnapshot())
 
@@ -213,11 +211,10 @@
     selectedId = ''
     draft = emptyDraft()
     conversationDraft = emptyConversationDraft()
-    hideConversationUntilReopen = false
     tagsText = ''
   }
 
-  function selectReport(report: Report, options: { force?: boolean; showConversation?: boolean; skipUnsavedCheck?: boolean } = {}) {
+  function selectReport(report: Report, options: { force?: boolean; skipUnsavedCheck?: boolean } = {}) {
     if (!options.force && report.id === selectedId) {
       return
     }
@@ -250,7 +247,6 @@
       pocFiles: report.pocFiles
     }
     conversationDraft = emptyConversationDraft()
-    hideConversationUntilReopen = options.showConversation === false
     tagsText = report.tags.join(', ')
   }
 
@@ -259,7 +255,6 @@
     errorMessage = ''
 
     try {
-      const hideConversationAfterSave = !draft.id || hideConversationUntilReopen
       const preparedDraft = draftForSave()
       const saved = normalizeReport(await SaveReport(new main.ReportDraft({
         ...preparedDraft
@@ -270,7 +265,7 @@
       } else {
         reports = [saved, ...reports]
       }
-      selectReport(saved, { force: true, showConversation: !hideConversationAfterSave, skipUnsavedCheck: true })
+      selectReport(saved, { force: true, skipUnsavedCheck: true })
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error)
     } finally {
@@ -1326,8 +1321,7 @@
         </div>
       </section>
 
-      {#if showConversationPanel}
-        <section class="conversation-panel">
+      <section class="conversation-panel">
           <div class="poc-header">
             <p class="eyebrow">メンテナー会話ログ</p>
             <button class="ghost-button attach-button" type="button" onclick={addConversationLog} disabled={!conversationDraft.body.trim()}>
@@ -1377,7 +1371,6 @@
             {/each}
           </div>
         </section>
-      {/if}
 
       <section class="storage-note">
         <p class="eyebrow">保存先</p>
