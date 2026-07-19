@@ -1115,7 +1115,7 @@ func normalizeDraft(draft ReportDraft) Report {
 		CVSSVersion:      normalizeChoice(draft.CVSSVersion, "3.1", []string{"3.1", "4.0"}),
 		CVSSScore:        normalizeCVSSScore(draft.CVSSScore),
 		CVSSVector:       strings.TrimSpace(draft.CVSSVector),
-		Status:           normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Duplicate", "Rejected", "Paid"}),
+		Status:           normalizeChoice(draft.Status, "Draft", []string{"Draft", "Submitted", "Triaged", "Resolved", "Published", "Duplicate", "Rejected", "Paid"}),
 		SubmittedAt:      strings.TrimSpace(draft.SubmittedAt),
 		NextActionAt:     strings.TrimSpace(draft.NextActionAt),
 		RewardStatus:     normalizeRewardStatus(draft.RewardStatus),

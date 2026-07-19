@@ -107,6 +107,14 @@ func TestNormalizeDraftCVSSAndAttachments(t *testing.T) {
 	}
 }
 
+func TestNormalizeDraftAcceptsPublishedStatus(t *testing.T) {
+	report := normalizeDraft(ReportDraft{Status: " published "})
+
+	if report.Status != "Published" {
+		t.Fatalf("Status = %q, want Published", report.Status)
+	}
+}
+
 func TestNormalizeDraftAllowsBlankReportURL(t *testing.T) {
 	report := normalizeDraft(ReportDraft{
 		Title:     "Blank URL",

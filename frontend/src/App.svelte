@@ -56,7 +56,7 @@
   type NextActionFilter = 'All' | 'Overdue' | 'Today' | 'Upcoming'
   type NextActionState = 'none' | 'done' | 'overdue' | 'today' | 'upcoming' | 'later'
   type RewardStatus = 'Unknown' | 'Pending' | 'Paid' | 'None'
-  type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Duplicate' | 'Rejected' | 'Paid'
+  type Status = 'Draft' | 'Submitted' | 'Triaged' | 'Resolved' | 'Published' | 'Duplicate' | 'Rejected' | 'Paid'
   type BackupDialog = {
     mode: 'export' | 'restore'
     file: File | null
@@ -68,7 +68,7 @@
   const participants: Participant[] = ['自分', 'メンテナー']
   const cvssVersions: CvssVersion[] = ['3.1', '4.0']
   const cvssRatings: CvssRating[] = ['Critical', 'High', 'Medium', 'Low', 'None']
-  const statuses: Status[] = ['Draft', 'Submitted', 'Triaged', 'Resolved', 'Duplicate', 'Rejected', 'Paid']
+  const statuses: Status[] = ['Draft', 'Submitted', 'Triaged', 'Resolved', 'Published', 'Duplicate', 'Rejected', 'Paid']
   const nextActionFilters: NextActionFilter[] = ['Overdue', 'Today', 'Upcoming']
   const rewardStatuses: RewardStatus[] = ['Unknown', 'Pending', 'Paid', 'None']
 
@@ -77,6 +77,7 @@
     Submitted: '提出済み',
     Triaged: '確認中',
     Resolved: '修正済み',
+    Published: '公開済み',
     Duplicate: '重複',
     Rejected: '却下',
     Paid: '支払済み'
@@ -657,7 +658,7 @@
   }
 
   function buildMetrics(source: Report[]) {
-    const open = source.filter((report) => !['Resolved', 'Rejected', 'Duplicate', 'Paid'].includes(report.status)).length
+    const open = source.filter((report) => !['Resolved', 'Published', 'Rejected', 'Duplicate', 'Paid'].includes(report.status)).length
     const triaged = source.filter((report) => report.status === 'Triaged').length
     const due = source.filter((report) => ['overdue', 'today'].includes(nextActionState(report))).length
     const attachments = source.reduce((sum, report) => sum + report.pocFiles.length, 0)
@@ -788,7 +789,7 @@
   }
 
   function isCompletedStatus(status: Status) {
-    return ['Resolved', 'Rejected', 'Duplicate', 'Paid'].includes(status)
+    return ['Resolved', 'Published', 'Rejected', 'Duplicate', 'Paid'].includes(status)
   }
 
   function legacySeverityScore(value: unknown) {
