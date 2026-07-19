@@ -25,8 +25,12 @@ body,
 #app {
   width: 100%;
   min-width: 0;
-  min-height: 100vh;
+  height: 100%;
   margin: 0;
+}
+
+body {
+  overflow: hidden;
 }
 
 button,
@@ -48,14 +52,16 @@ button:disabled {
 .workspace {
   display: grid;
   grid-template-columns: minmax(280px, 330px) minmax(440px, 1fr);
-  min-height: 100vh;
+  height: 100vh;
   background: #eef2f6;
 }
 
 .sidebar,
 .editor {
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sidebar {
@@ -706,12 +712,13 @@ label.full-width {
 
 @media (max-width: 820px) {
   .workspace {
-    display: block;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 42vh) minmax(0, 1fr);
   }
 
   .sidebar,
   .editor {
-    min-height: auto;
+    min-height: 0;
   }
 
   .sidebar {
