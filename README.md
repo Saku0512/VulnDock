@@ -2,6 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Saku0512/VulnDock)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Saku0512/VulnDock/badge)](https://scorecard.dev/viewer/?uri=github.com/Saku0512/VulnDock)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/13463/baseline)](https://www.bestpractices.dev/projects/13463)
 [![Latest Release](https://img.shields.io/github/v/release/Saku0512/VulnDock)](https://github.com/Saku0512/VulnDock/releases/latest)
 ![Downloads](https://img.shields.io/github/downloads/Saku0512/VulnDock/total)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
