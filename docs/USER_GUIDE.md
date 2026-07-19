@@ -20,7 +20,7 @@ VulnDock stores these report fields:
 - CVSS Version: `3.1` or `4.0`.
 - CVSS Score: Numeric score from `0.0` to `10.0`.
 - CVSS Vector: CVSS vector string.
-- Status: One of `Draft`, `Submitted`, `Triaged`, `Resolved`, `Duplicate`, `Rejected`, or `Paid`.
+- Status: One of `Draft`, `Submitted`, `Triaged`, `Resolved`, `Published`, `Duplicate`, `Rejected`, or `Paid`.
 - Submitted At: Date or datetime when the report was submitted.
 - Next Action At: Date or datetime for follow-up.
 - Reward Status: One of `Unknown`, `Pending`, `Paid`, or `None`.
