@@ -130,29 +130,32 @@ h1 {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .metrics-grid div {
   border: 1px solid #dce3eb;
   border-radius: 8px;
   background: #ffffff;
-  padding: 12px;
+  padding: 7px 5px;
+  text-align: center;
 }
 
 .metrics-grid span {
   display: block;
   overflow-wrap: anywhere;
   color: #19324d;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 800;
+  line-height: 1.15;
 }
 
 .metrics-grid p {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   color: #6d7888;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .filter-panel {
