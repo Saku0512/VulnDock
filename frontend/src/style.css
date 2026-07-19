@@ -25,8 +25,12 @@ body,
 #app {
   width: 100%;
   min-width: 0;
-  min-height: 100vh;
+  height: 100%;
   margin: 0;
+}
+
+body {
+  overflow: hidden;
 }
 
 button,
@@ -48,14 +52,16 @@ button:disabled {
 .workspace {
   display: grid;
   grid-template-columns: minmax(280px, 330px) minmax(440px, 1fr);
-  min-height: 100vh;
+  height: 100vh;
   background: #eef2f6;
 }
 
 .sidebar,
 .editor {
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sidebar {
@@ -124,29 +130,32 @@ h1 {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .metrics-grid div {
   border: 1px solid #dce3eb;
   border-radius: 8px;
   background: #ffffff;
-  padding: 12px;
+  padding: 7px 5px;
+  text-align: center;
 }
 
 .metrics-grid span {
   display: block;
   overflow-wrap: anywhere;
   color: #19324d;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 800;
+  line-height: 1.15;
 }
 
 .metrics-grid p {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   color: #6d7888;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .filter-panel {
@@ -187,15 +196,19 @@ textarea:focus {
 
 .report-list {
   display: grid;
+  min-width: 0;
   align-content: start;
   gap: 8px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-right: 2px;
 }
 
 .report-item {
   display: grid;
   gap: 7px;
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
   border: 1px solid #dbe3ec;
   border-radius: 8px;
@@ -215,16 +228,22 @@ textarea:focus {
 }
 
 .item-topline {
+  min-width: 0;
   justify-content: space-between;
   gap: 10px;
 }
 
 .item-topline strong {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   font-size: 0.94rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.item-topline .severity {
+  flex: 0 0 auto;
 }
 
 .item-meta {
@@ -706,12 +725,13 @@ label.full-width {
 
 @media (max-width: 820px) {
   .workspace {
-    display: block;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 42vh) minmax(0, 1fr);
   }
 
   .sidebar,
   .editor {
-    min-height: auto;
+    min-height: 0;
   }
 
   .sidebar {
