@@ -35,12 +35,12 @@ export namespace main {
 	    }
 	}
 	export class PocFile {
-	    id: string;
+	    id?: string;
 	    name: string;
 	    type: string;
 	    size: number;
-	    path: string;
-	    data: string;
+	    path?: string;
+	    data?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PocFile(source);
@@ -202,3 +202,4 @@ export namespace main {
 	}
 
 }
+
