@@ -677,6 +677,21 @@ label.full-width {
   white-space: pre-wrap;
 }
 
+.conversation-item .conversation-edit-form {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.conversation-edit-body {
+  grid-column: 1 / -1;
+}
+
+.conversation-item-actions {
+  justify-content: flex-end;
+}
+
 .small-button {
   height: 30px;
   border: 1px solid #c8d2dd;
@@ -797,6 +812,14 @@ label.full-width {
 
   .conversation-form {
     grid-template-columns: 1fr;
+  }
+
+  .conversation-item .conversation-edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .conversation-edit-body {
+    grid-column: auto;
   }
 
 

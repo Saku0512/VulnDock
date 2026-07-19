@@ -115,6 +115,7 @@
   let nextActionFilter = $state<'All' | NextActionFilter>('All')
   let draft = $state<ReportDraft>(emptyDraft())
   let conversationDraft = $state<ConversationDraft>(emptyConversationDraft())
+  let editingConversationLog = $state<ConversationEntry | null>(null)
   let tagsText = $state('')
   let storePath = $state('')
   let loading = $state(true)
@@ -214,6 +215,7 @@
     selectedId = ''
     draft = emptyDraft()
     conversationDraft = emptyConversationDraft()
+    editingConversationLog = null
     tagsText = ''
   }
 
@@ -250,6 +252,7 @@
       pocFiles: report.pocFiles
     }
     conversationDraft = emptyConversationDraft()
+    editingConversationLog = null
     tagsText = report.tags.join(', ')
   }
 
@@ -936,8 +939,41 @@
     ))
   }
 
+  function startEditingConversationLog(log: ConversationEntry) {
+    editingConversationLog = { ...log }
+  }
+
+  function updateEditingConversationTime(value: string | string[] | null) {
+    if (typeof value === 'string' && editingConversationLog) {
+      editingConversationLog.communicatedAt = value
+    }
+  }
+
+  function saveEditedConversationLog() {
+    if (!editingConversationLog) {
+      return
+    }
+
+    const body = editingConversationLog.body.trim()
+    if (!body) {
+      return
+    }
+
+    const from = normalizeParticipant(editingConversationLog.from, '自分')
+    const to = normalizeRecipient(editingConversationLog.to, from)
+    draft.conversationLogs = draft.conversationLogs.map((log) => (
+      log.id === editingConversationLog?.id
+        ? { ...editingConversationLog, from, to, body }
+        : log
+    ))
+    editingConversationLog = null
+  }
+
   function removeConversationLog(id: string) {
     draft.conversationLogs = draft.conversationLogs.filter((log) => log.id !== id)
+    if (editingConversationLog?.id === id) {
+      editingConversationLog = null
+    }
   }
 
   function openReportUrl() {
@@ -1383,27 +1419,64 @@
           <div class="conversation-list">
             {#each draft.conversationLogs as log (log.id)}
               <article class="conversation-item">
-                <div>
-                  <strong>{log.from} → {log.to}</strong>
-                  <div class="conversation-time-field">
-                    <span class="conversation-field-label">日時</span>
-                    <div class="conversation-picker">
-                      <SveltyPicker
-                        value={log.communicatedAt}
-                        mode="datetime"
-                        format="yyyy-mm-ddThh:ii"
-                        displayFormat="yyyy年mm月dd日 hh:ii"
-                        i18n={jp}
-                        inputClasses="conversation-picker-input"
-                        placeholder="日時を選択"
-                        clearToggle={false}
-                        onChange={(value) => updateConversationLogTime(log.id, value)}
-                      />
+                {#if editingConversationLog?.id === log.id}
+                  <div class="conversation-edit-form">
+                    <label>
+                      送信者
+                      <select bind:value={editingConversationLog.from}>
+                        {#each participants as participant}
+                          <option value={participant}>{participant}</option>
+                        {/each}
+                      </select>
+                    </label>
+                    <label>
+                      宛先
+                      <select bind:value={editingConversationLog.to}>
+                        {#each participants as participant}
+                          <option value={participant}>{participant}</option>
+                        {/each}
+                      </select>
+                    </label>
+                    <div class="conversation-time-field">
+                      <span class="conversation-field-label">日時</span>
+                      <div class="conversation-picker">
+                        <SveltyPicker
+                          value={editingConversationLog.communicatedAt}
+                          mode="datetime"
+                          format="yyyy-mm-ddThh:ii"
+                          displayFormat="yyyy年mm月dd日 hh:ii"
+                          i18n={jp}
+                          inputClasses="conversation-picker-input"
+                          placeholder="日時を選択"
+                          clearToggle={false}
+                          onChange={updateEditingConversationTime}
+                        />
+                      </div>
+                    </div>
+                    <label class="conversation-edit-body">
+                      内容
+                      <textarea bind:value={editingConversationLog.body} rows="4"></textarea>
+                    </label>
+                  </div>
+                  <div class="conversation-item-actions">
+                    <button class="ghost-button" type="button" onclick={() => editingConversationLog = null}>キャンセル</button>
+                    <button class="primary-button" type="button" onclick={saveEditedConversationLog} disabled={!editingConversationLog.body.trim()}>変更を反映</button>
+                    <button class="small-button" type="button" onclick={() => removeConversationLog(log.id)}>削除</button>
+                  </div>
+                {:else}
+                  <div>
+                    <strong>{log.from} → {log.to}</strong>
+                    <div class="conversation-time-field">
+                      <span class="conversation-field-label">日時</span>
+                      <span>{log.communicatedAt.replace('T', ' ')}</span>
                     </div>
                   </div>
-                </div>
-                <p>{log.body}</p>
-                <button class="small-button" type="button" onclick={() => removeConversationLog(log.id)}>削除</button>
+                  <p>{log.body}</p>
+                  <div class="conversation-item-actions">
+                    <button class="small-button" type="button" onclick={() => startEditingConversationLog(log)}>編集</button>
+                    <button class="small-button" type="button" onclick={() => removeConversationLog(log.id)}>削除</button>
+                  </div>
+                {/if}
               </article>
             {:else}
               <p class="muted">未記録</p>
