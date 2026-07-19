@@ -19,5 +19,8 @@
     "tslib": "^2.4.0",
     "typescript": "^5.9.3",
     "vite": "^8.1.5"
+  },
+  "dependencies": {
+    "svelty-picker": "^6.1.6"
   }
 }
