@@ -6,6 +6,8 @@
   import { selectedBackupFile, validateBackupPasswordPair, validateRestorePassword } from './backup'
   import { calculateCvss, inferCvssVersion } from './cvss'
   import logoUrl from './assets/images/logo.png'
+  import SveltyPicker from 'svelty-picker'
+  import { jp } from 'svelty-picker/i18n'
 
   type Report = {
     id: string
@@ -913,9 +915,25 @@
     conversationDraft = {
       from,
       to,
-      communicatedAt: localDateTimeNow(),
+      communicatedAt: conversationDraft.communicatedAt,
       body: ''
     }
+  }
+
+  function updateConversationDraftTime(value: string | string[] | null) {
+    if (typeof value === 'string') {
+      conversationDraft.communicatedAt = value
+    }
+  }
+
+  function updateConversationLogTime(id: string, value: string | string[] | null) {
+    if (typeof value !== 'string') {
+      return
+    }
+
+    draft.conversationLogs = draft.conversationLogs.map((log) => (
+      log.id === id ? { ...log, communicatedAt: value } : log
+    ))
   }
 
   function removeConversationLog(id: string) {
@@ -941,13 +959,6 @@
       return `${(size / 1024).toFixed(1)} KB`
     }
     return `${(size / 1024 / 1024).toFixed(1)} MB`
-  }
-
-  function formatConversationTime(value: string) {
-    if (!value.trim()) {
-      return '日時未設定'
-    }
-    return value.replace('T', ' ')
   }
 
   function contactElapsedLabel(report: Report) {
@@ -1347,10 +1358,22 @@
                 {/each}
               </select>
             </label>
-            <label>
-              日時
-              <input bind:value={conversationDraft.communicatedAt} type="datetime-local" />
-            </label>
+            <div class="conversation-scheduled-at">
+              <span class="conversation-field-label">日時</span>
+              <div class="conversation-picker">
+                <SveltyPicker
+                  value={conversationDraft.communicatedAt}
+                  mode="datetime"
+                  format="yyyy-mm-ddThh:ii"
+                  displayFormat="yyyy年mm月dd日 hh:ii"
+                  i18n={jp}
+                  inputClasses="conversation-picker-input"
+                  placeholder="日時を選択"
+                  clearToggle={false}
+                  onChange={updateConversationDraftTime}
+                />
+              </div>
+            </div>
             <label class="conversation-body">
               内容
               <textarea bind:value={conversationDraft.body} rows="4" placeholder="伝えた内容"></textarea>
@@ -1362,7 +1385,22 @@
               <article class="conversation-item">
                 <div>
                   <strong>{log.from} → {log.to}</strong>
-                  <span>{formatConversationTime(log.communicatedAt)}</span>
+                  <div class="conversation-time-field">
+                    <span class="conversation-field-label">日時</span>
+                    <div class="conversation-picker">
+                      <SveltyPicker
+                        value={log.communicatedAt}
+                        mode="datetime"
+                        format="yyyy-mm-ddThh:ii"
+                        displayFormat="yyyy年mm月dd日 hh:ii"
+                        i18n={jp}
+                        inputClasses="conversation-picker-input"
+                        placeholder="日時を選択"
+                        clearToggle={false}
+                        onChange={(value) => updateConversationLogTime(log.id, value)}
+                      />
+                    </div>
+                  </div>
                 </div>
                 <p>{log.body}</p>
                 <button class="small-button" type="button" onclick={() => removeConversationLog(log.id)}>削除</button>
