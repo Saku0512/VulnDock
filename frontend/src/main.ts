@@ -1,4 +1,5 @@
 import './style.css'
+import './reportFilters.css'
 import { mount } from 'svelte'
 import App from './App.svelte'
 import { setupDefaultReportVisibility } from './reportVisibility'
