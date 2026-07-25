@@ -10,6 +10,7 @@
   },
   "include": [
     "src/backup.ts",
-    "src/cvss.ts"
+    "src/cvss.ts",
+    "src/reportVisibility.ts"
   ]
 }
