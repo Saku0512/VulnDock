@@ -24,6 +24,7 @@ export type SortableReport = {
   status: string
   cvssVersion: string
   cvssScore: string
+  cvssVector: string
   submittedAt: string
   nextActionAt: string
   createdAt: string
@@ -89,7 +90,7 @@ export function normalizeReportSortPreference(value: unknown): ReportSortPrefere
   return { field, direction }
 }
 
-export function sortReports<T extends Pick<SortableReport, ReportSortField>>(
+export function sortReports<T extends Record<ReportSortField, string>>(
   reports: readonly T[],
   preference: ReportSortPreference
 ) {
@@ -105,6 +106,31 @@ export function sortReports<T extends Pick<SortableReport, ReportSortField>>(
       return compared || left.index - right.index
     })
     .map(({ report }) => report)
+}
+
+export function reportMatchesSearch(report: SortableReport, queryValue: string) {
+  const query = queryValue.trim().toLowerCase()
+  if (!query) {
+    return true
+  }
+
+  const searchable = [
+    report.title,
+    report.program,
+    report.asset,
+    report.cvssScore,
+    report.cvssVector,
+    report.nextActionAt,
+    rewardSearchText(report),
+    report.memo,
+    report.reportUrl,
+    report.maintainerLog,
+    conversationLogsToText(report.conversationLogs),
+    report.pocFiles.map((file) => String((file as Record<string, unknown>)?.name ?? '')).join(' '),
+    report.tags.join(' ')
+  ].join(' ').toLowerCase()
+
+  return searchable.includes(query)
 }
 
 export function setupReportSorting(target: HTMLElement) {
@@ -129,8 +155,10 @@ export function setupReportSorting(target: HTMLElement) {
     })
     updateSortControls(controls, preference)
 
+    const query = filterPanel.querySelector<HTMLInputElement>('input[type="search"]')?.value ?? ''
+    const searchableReports = reports.filter((report) => reportMatchesSearch(report, query))
     const items = Array.from(reportList.querySelectorAll<HTMLElement>('.report-item'))
-    const matchedReports = matchItemsToReports(items, reports)
+    const matchedReports = matchItemsToReports(items, searchableReports)
     const sorted = sortReports(
       matchedReports.filter((entry): entry is SortableReport => Boolean(entry)),
       preference
@@ -154,11 +182,11 @@ export function setupReportSorting(target: HTMLElement) {
     refreshInFlight = true
     try {
       reports = (await ListReports()).map(normalizeReport)
-      applyOrder()
     } catch {
-      applyOrder()
+      // Keep the last successfully loaded snapshot.
     } finally {
       refreshInFlight = false
+      applyOrder()
       if (refreshAgain) {
         refreshAgain = false
         void refreshReports()
@@ -283,14 +311,18 @@ function ensureSortControls(
     select.append(element)
   }
   select.value = preference.field
-  select.addEventListener('change', () => {
-    onChange(normalizeReportSortPreference({ field: select.value, direction: preference.direction }))
-  })
   label.append(select)
 
   const direction = document.createElement('button')
   direction.type = 'button'
   direction.className = 'ghost-button report-sort-direction'
+
+  select.addEventListener('change', () => {
+    onChange(normalizeReportSortPreference({
+      field: select.value,
+      direction: direction.dataset.direction
+    }))
+  })
   direction.addEventListener('click', () => {
     const nextDirection = direction.dataset.direction === 'asc' ? 'desc' : 'asc'
     onChange(normalizeReportSortPreference({ field: select.value, direction: nextDirection }))
@@ -310,8 +342,14 @@ function updateSortControls(controls: HTMLElement, preference: ReportSortPrefere
   }
   if (direction) {
     direction.dataset.direction = preference.direction
-    direction.textContent = preference.direction === 'asc' ? '昇順 ↑' : '降順 ↓'
-    direction.setAttribute('aria-label', preference.direction === 'asc' ? '昇順。クリックで降順' : '降順。クリックで昇順')
+    const label = preference.direction === 'asc' ? '昇順 ↑' : '降順 ↓'
+    if (direction.textContent !== label) {
+      direction.textContent = label
+    }
+    direction.setAttribute(
+      'aria-label',
+      preference.direction === 'asc' ? '昇順。クリックで降順' : '降順。クリックで昇順'
+    )
   }
 }
 
@@ -366,6 +404,7 @@ function normalizeReport(source: unknown): SortableReport {
     status: String(report.status ?? 'Draft'),
     cvssVersion: String(report.cvssVersion ?? '3.1'),
     cvssScore: String(report.cvssScore ?? ''),
+    cvssVector: String(report.cvssVector ?? ''),
     submittedAt: String(report.submittedAt ?? ''),
     nextActionAt: String(report.nextActionAt ?? ''),
     createdAt: String(report.createdAt ?? ''),
@@ -382,31 +421,6 @@ function normalizeReport(source: unknown): SortableReport {
     conversationLogs: Array.isArray(report.conversationLogs) ? report.conversationLogs : [],
     tags: Array.isArray(report.tags) ? report.tags.map(String) : []
   }
-}
-
-export function reportMatchesSearch(report: SortableReport, queryValue: string) {
-  const query = queryValue.trim().toLowerCase()
-  if (!query) {
-    return true
-  }
-
-  const searchable = [
-    report.title,
-    report.program,
-    report.asset,
-    report.cvssScore,
-    String((report as Record<string, unknown>).cvssVector ?? ''),
-    report.nextActionAt,
-    rewardSearchText(report),
-    report.memo,
-    report.reportUrl,
-    report.maintainerLog,
-    conversationLogsToText(report.conversationLogs),
-    report.pocFiles.map((file) => String((file as Record<string, unknown>)?.name ?? '')).join(' '),
-    report.tags.join(' ')
-  ].join(' ').toLowerCase()
-
-  return searchable.includes(query)
 }
 
 function rewardSearchText(report: SortableReport) {
