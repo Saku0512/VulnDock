@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2020",
     "module": "ES2020",
     "moduleResolution": "Node",
     "strict": false,
@@ -11,7 +11,7 @@
   "include": [
     "src/backup.ts",
     "src/cvss.ts",
-    "src/reportSorting.ts",
+    "src/reportSortCore.ts",
     "src/reportVisibility.ts"
   ]
 }
