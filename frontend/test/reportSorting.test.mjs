@@ -5,7 +5,7 @@ import {
   normalizeReportSortPreference,
   reportMatchesSearch,
   sortReports
-} from '../.test-dist/reportSorting.js'
+} from '../.test-dist/reportSortCore.js'
 
 function sortable(id, overrides = {}) {
   return {
@@ -110,13 +110,18 @@ describe('sortReports', () => {
       sortable('low', { cvssScore: '3.0' })
     ]
 
-    assert.equal(sortReports(dates, { field: 'nextActionAt', direction: 'asc' }).at(-1).id, 'missing')
-    assert.equal(sortReports(dates, { field: 'nextActionAt', direction: 'desc' }).at(-1).id, 'missing')
-    assert.equal(sortReports(scores, { field: 'cvssScore', direction: 'asc' }).at(-1).id, 'missing')
-    assert.equal(sortReports(scores, { field: 'cvssScore', direction: 'desc' }).at(-1).id, 'missing')
+    const datesAscending = sortReports(dates, { field: 'nextActionAt', direction: 'asc' })
+    const datesDescending = sortReports(dates, { field: 'nextActionAt', direction: 'desc' })
+    const scoresAscending = sortReports(scores, { field: 'cvssScore', direction: 'asc' })
+    const scoresDescending = sortReports(scores, { field: 'cvssScore', direction: 'desc' })
+
+    assert.equal(datesAscending[datesAscending.length - 1].id, 'missing')
+    assert.equal(datesDescending[datesDescending.length - 1].id, 'missing')
+    assert.equal(scoresAscending[scoresAscending.length - 1].id, 'missing')
+    assert.equal(scoresDescending[scoresDescending.length - 1].id, 'missing')
   })
 
-  it('uses locale-aware numeric text ordering', () => {
+  it('uses numeric-aware text ordering', () => {
     const reports = [
       sortable('ten', { title: 'Report 10' }),
       sortable('two', { title: 'Report 2' }),
