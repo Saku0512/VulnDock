@@ -11,6 +11,7 @@
   "include": [
     "src/backup.ts",
     "src/cvss.ts",
+    "src/reportSortCore.ts",
     "src/reportVisibility.ts"
   ]
 }
